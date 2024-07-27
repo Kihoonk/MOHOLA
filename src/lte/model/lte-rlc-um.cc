@@ -598,7 +598,7 @@ LteRlcUm::IsInsideReorderingWindow (SequenceNumber10 seqNumber)
 
 void
 LteRlcUm::ReassembleAndDeliver (Ptr<Packet> packet)
-{
+{  
   LteRlcHeader rlcHeader;
   packet->RemoveHeader (rlcHeader);
   uint8_t framingInfo = rlcHeader.GetFramingInfo ();
@@ -1065,14 +1065,14 @@ LteRlcUm::ReassembleAndDeliver (Ptr<Packet> packet)
 
 void
 LteRlcUm::ReassembleOutsideWindow (void)
-{
+{ 
   NS_LOG_LOGIC ("Reassemble Outside Window");
 
   std::map <uint16_t, Ptr<Packet> >::iterator it;
   it = m_rxBuffer.begin ();
 
   while ( (it != m_rxBuffer.end ()) && ! IsInsideReorderingWindow (SequenceNumber10 (it->first)) )
-    {
+    { 
       NS_LOG_LOGIC ("SN = " << it->first);
 
       // Reassemble RLC SDUs and deliver the PDCP PDU to upper layer
@@ -1106,7 +1106,7 @@ LteRlcUm::ReassembleSnInterval (SequenceNumber10 lowSeqNumber, SequenceNumber10 
       NS_LOG_LOGIC ("it->first  = " << it->first);
       NS_LOG_LOGIC ("it->second = " << it->second);
       if (it != m_rxBuffer.end () )
-        {
+        { 
           NS_LOG_LOGIC ("SN = " << it->first);
 
           // Reassemble RLC SDUs and deliver the PDCP PDU to upper layer

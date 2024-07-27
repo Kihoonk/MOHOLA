@@ -22,6 +22,7 @@
 #include "ns3/mobility-model.h"
 #include "ns3/log.h"
 #include <ns3/building-list.h>
+#include <ns3/simulator.h>
 
 namespace ns3 {
 
@@ -58,15 +59,14 @@ ThreeGppV2vUrbanChannelConditionModel::ComputePlos (Ptr<const MobilityModel> a,
   // determine if there is a building in between the tx and rx
   Ptr<ChannelCondition> cond = m_buildingsCcm->GetChannelCondition (a, b);
   NS_ASSERT_MSG (cond->IsO2o (), "The nodes should be outdoor");
-
+  
   double pLos = 0.0;
   if (cond->IsLos ())
     {
-      // compute the 2D distance between a and b
-      double distance2D = Calculate2dDistance (a->GetPosition (), b->GetPosition ());
 
       // compute the LOS probability (see 3GPP TR 37.885, Table 6.2-1)
-      pLos = std::min (1.0, 1.05 * exp (-0.0114 * distance2D));
+    
+      pLos = 1;
     }
 
   return pLos;
@@ -81,8 +81,8 @@ ThreeGppV2vUrbanChannelConditionModel::ComputePnlos (Ptr<const MobilityModel> a,
   // determine the NLOS due to buildings
   Ptr<ChannelCondition> cond = m_buildingsCcm->GetChannelCondition (a, b);
   NS_ASSERT_MSG (cond->IsO2o (), "The nodes should be outdoor");
-
-  double pNlos = 0.0;
+  
+  double pNlos = 0;
   if (cond->IsNlos ())
     {
       pNlos = 1.0;
@@ -125,22 +125,24 @@ ThreeGppV2vHighwayChannelConditionModel::ComputePlos (Ptr<const MobilityModel> a
 
   // determine if there is a building in between the tx and rx
   Ptr<ChannelCondition> cond = ComputeChCond (a, b);
-  NS_ASSERT_MSG (cond->IsO2o (), "The nodes should be outdoor");
+  // NS_ASSERT_MSG (cond->IsO2o (), "The nodes should be outdoor"); 0524
 
   double pLos = 0.0;
   if (cond->IsLos ())
     {
       // compute the 2D distance between a and b
       double distance2D = Calculate2dDistance (a->GetPosition (), b->GetPosition ());
-
+      
       // compute the LOS probability (see 3GPP TR 37.885, Table 6.2-1)
-      if (distance2D <= 475.0)
+      if (distance2D <= 1000)
         {
-          pLos = std::min (1.0, 2.1013e-6 * distance2D * distance2D - 0.002 * distance2D + 1.0193);
+          
+            pLos = 1;
         }
       else
         {
           pLos = std::max (0.0, 0.54 - 0.001 * (distance2D - 475.0));
+          
         }
     }
 
@@ -155,14 +157,15 @@ ThreeGppV2vHighwayChannelConditionModel::ComputePnlos (Ptr<const MobilityModel> 
 
   // determine the NLOS due to buildings
   Ptr<ChannelCondition> cond = ComputeChCond (a, b);
-  NS_ASSERT_MSG (cond->IsO2o (), "The nodes should be outdoor");
+  // NS_ASSERT_MSG (cond->IsO2o (), "The nodes should be outdoor");
 
   double pNlos = 0;
+  
   if (cond->IsNlos ())
     {
-      pNlos = 1.0;
+      
+      pNlos = 1;
     }
-
   return pNlos;
 }
 
@@ -176,12 +179,14 @@ ThreeGppV2vHighwayChannelConditionModel::GetChCondAndFixCallback (Ptr<const Mobi
       ComputeChCond = std::bind (&ThreeGppV2vHighwayChannelConditionModel::GetChCondWithBuildings, this,
                                  std::placeholders::_1, std::placeholders::_2);
       cond = GetChCondWithBuildings (a, b);
+      
     }
   else
     {
       ComputeChCond = std::bind (&ThreeGppV2vHighwayChannelConditionModel::GetChCondWithNoBuildings, this,
                                  std::placeholders::_1, std::placeholders::_2);
       cond = GetChCondWithNoBuildings (a, b);
+      
     }
   return cond;
 }
@@ -190,8 +195,13 @@ Ptr<ChannelCondition>
 ThreeGppV2vHighwayChannelConditionModel::GetChCondWithBuildings (Ptr<const MobilityModel> a,
                                                                   Ptr<const MobilityModel> b) const
 {
+  
   Ptr<ChannelCondition> cond = m_buildingsCcm->GetChannelCondition (a, b);
+
+ 
+
   return cond;
+  
 }
 
 Ptr<ChannelCondition>

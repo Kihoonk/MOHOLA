@@ -56,14 +56,14 @@ A3RsrpHandoverAlgorithm::GetTypeId ()
     .AddAttribute ("Hysteresis",
                    "Handover margin (hysteresis) in dB "
                    "(rounded to the nearest multiple of 0.5 dB)",
-                   DoubleValue (3.0),
+                   DoubleValue (0.0), // original 3
                    MakeDoubleAccessor (&A3RsrpHandoverAlgorithm::m_hysteresisDb),
                    MakeDoubleChecker<uint8_t> (0.0, 15.0)) // Hysteresis IE value range is [0..30] as per Section 6.3.5 of 3GPP TS 36.331
     .AddAttribute ("TimeToTrigger",
                    "Time during which neighbour cell's RSRP "
                    "must continuously higher than serving cell's RSRP "
                    "in order to trigger a handover",
-                   TimeValue (MilliSeconds (256)), // 3GPP time-to-trigger median value as per Section 6.3.5 of 3GPP TS 36.331
+                   TimeValue (MilliSeconds (0)), // 3GPP time-to-trigger median value as per Section 6.3.5 of 3GPP TS 36.331 original 256
                    MakeTimeAccessor (&A3RsrpHandoverAlgorithm::m_timeToTrigger),
                    MakeTimeChecker ())
   ;

@@ -30,6 +30,18 @@
 #include "ns3/pointer.h"
 #include <cmath>
 
+#include <iostream>
+#include <string>
+#include <fstream>
+#include <vector>
+#include <ns3/object.h>
+#include <ns3/double.h>
+#include <ns3/antenna-model.h>
+#include <ns3/cosine-antenna-model.h>
+#include <ns3/angles.h>
+#include <ns3/core-module.h>
+#include <ns3/lte-enb-net-device.h>
+
 namespace ns3 {
 
 NS_LOG_COMPONENT_DEFINE ("PropagationLossModel");
@@ -450,6 +462,462 @@ TwoRayGroundPropagationLossModel::DoAssignStreams (int64_t stream)
 {
   return 0;
 }
+
+
+// ------------------------------------------------------------------------- //
+// -- Mmwave propagation loss model -- //
+
+NS_OBJECT_ENSURE_REGISTERED (MmWavePropagationLossModel);
+
+TypeId 
+MmWavePropagationLossModel::GetTypeId (void)
+{
+  static TypeId tid = TypeId ("ns3::MmWavePropagationLossModel")
+    .SetParent<PropagationLossModel> ()
+    .SetGroupName ("Propagation")
+    .AddConstructor<MmWavePropagationLossModel> ()
+    .AddAttribute ("Frequency", 
+                   "The carrier frequency (in Hz) at which propagation occurs  (default is 300 GHz).",
+                   DoubleValue (3.000e10),
+                   MakeDoubleAccessor (&MmWavePropagationLossModel::SetFrequency,
+                                       &MmWavePropagationLossModel::GetFrequency),
+                   MakeDoubleChecker<double> ())
+    .AddAttribute ("Scenario",
+				"The available channel scenarios are 'RMa', 'UMa', 'UMi-StreetCanyon', 'InH-OfficeMixed', 'InH-OfficeOpen', 'InH-ShoppingMall'",
+				StringValue ("UMa"),
+				MakeStringAccessor (&MmWavePropagationLossModel::m_scenario),
+				MakeStringChecker ())
+    .AddAttribute ("MinLoss",
+                   "The minimum value (dB) of the total loss, used at short ranges.",
+                   DoubleValue (0.0),
+                   MakeDoubleAccessor (&MmWavePropagationLossModel::SetMinLoss,
+                                       &MmWavePropagationLossModel::GetMinLoss),
+                   MakeDoubleChecker<double> ())
+  ;
+  return tid;
+}
+
+MmWavePropagationLossModel::MmWavePropagationLossModel ()
+{
+}
+
+
+void
+MmWavePropagationLossModel::SetFrequency (double frequency)
+{
+  m_frequency = frequency;
+  static const double C = 299792458.0; // speed of light in vacuum
+  m_lambda = C / frequency;
+}
+
+void
+MmWavePropagationLossModel::SetMinLoss (double minLoss)
+{
+  m_minLoss = minLoss;
+}
+double
+MmWavePropagationLossModel::GetMinLoss (void) const
+{
+  return m_minLoss;
+}
+
+
+double
+MmWavePropagationLossModel::GetFrequency (void) const
+{
+  return m_frequency;
+}
+
+double 
+MmWavePropagationLossModel::DoCalcRxPower (double txPowerDbm,
+                                                 Ptr<MobilityModel> a,
+                                                 Ptr<MobilityModel> b) const
+{
+  return (txPowerDbm - GetLoss (a, b));
+}
+
+// LTE 환경에 맞게 변형
+/////////////////////////
+std::tuple< Ptr<MobilityModel>, Ptr<MobilityModel> >
+MmWavePropagationLossModel::GetEnbUePair(Ptr<MobilityModel> a, Ptr<MobilityModel> b) const
+{
+	Ptr<MobilityModel> ueMob=0, enbMob=0;
+
+	// if(DynamicCast<LteEnbNetDevice> (a->GetObject<LteEnbNetDevice> ()) != 0)
+	// {
+	// 	// for sure it is downlink
+	// 	enbMob = a;
+	// 	ueMob = b;
+	// }
+	// else if(DynamicCast<LteEnbNetDevice> (b->GetObject<LteEnbNetDevice> ()) != 0)
+	// {
+	// 	// for sure it is uplink
+	// 	ueMob = a;
+	// 	enbMob = b;
+	// }
+
+  // ueMob = a;
+	// enbMob = b;
+
+  // Down Link
+  ueMob = b;
+	enbMob = a;
+
+	return std::make_tuple(enbMob, ueMob);
+}
+/////////////////////////
+
+
+// LTE 환경에 맞게 변형
+/////////////////////////
+double
+MmWavePropagationLossModel::GetLoss (Ptr<MobilityModel> a, Ptr<MobilityModel> b) const
+{
+
+	double distance3D = a->GetDistanceFrom (b);
+
+	if (distance3D <= 0)
+	{
+		return  m_minLoss;
+	}
+	if (distance3D < 3*m_lambda)
+	{
+		NS_LOG_UNCOND ("distance not within the far field region => inaccurate propagation loss value");
+	}
+
+	Ptr<MobilityModel> ueMob, enbMob;
+	
+	auto returnParams = GetEnbUePair(a, b);
+
+	enbMob = std::get<0>(returnParams);
+	ueMob =  std::get<1>(returnParams);
+
+  //오류 없애는 용도
+  if(ueMob->GetPosition().z > 10){
+    Ptr<MobilityModel> temp;
+    temp = ueMob;
+    ueMob = enbMob;
+    enbMob = temp;
+  }
+
+	Vector uePos = ueMob->GetPosition();
+	Vector enbPos = enbMob->GetPosition();
+	double x = uePos.x-enbPos.x;
+	double y = uePos.y-enbPos.y;
+	double distance2D = sqrt (x*x +y*y);
+	double hBs = enbPos.z;
+	double hUt = uePos.z;
+
+
+  // std::cout<<"hBs: "<<hBs<<"  hUt: "<<hUt<<std::endl;
+  ///////////////
+
+		double lossDb = 0;
+		double freqGHz = m_frequency/1e9;
+
+		// double shadowingStd = 0;
+		// double shadowingCorDistance = 0;
+		if (m_scenario == "RMa")
+		{
+			if(distance2D < 10)
+			{
+				NS_LOG_WARN ("The 2D distance is smaller than 10 meters, the 3GPP RMa model may not be accurate");
+			}
+
+			if (hBs < 10 || hBs > 150 )
+			{
+				NS_FATAL_ERROR ("According to table 7.4.1-1, the RMa scenario need to satisfy the following condition, 10 m <= hBS <= 150 m");
+			}
+
+			if (hUt < 1 || hUt > 10 )
+			{
+				NS_FATAL_ERROR ("According to table 7.4.1-1, the RMa scenario need to satisfy the following condition, 1 m <= hUT <= 10 m");
+			}
+			//default base station antenna height is 35 m
+			//hBs = 35;
+			//default user antenna height is 1.5 m
+			//hUt = 1.5;
+			// double W = 20; //average street height
+			double h = 5; //average building height
+
+			double dBP = 2*M_PI*hBs*hUt*m_frequency/3e8; //break point distance
+			double PL1 = 20*log10(40*M_PI*distance3D*freqGHz/3) + std::min(0.03*pow(h,1.72),10.0)*log10(distance3D) - std::min(0.044*pow(h,1.72),14.77) + 0.002*log10(h)*distance3D;
+
+			if(distance2D <= dBP)
+			{
+				lossDb = PL1;
+				// shadowingStd = 4;
+
+			}
+			else
+			{
+				//PL2
+				lossDb = PL1 + 40*log10(distance3D/dBP);
+				// shadowingStd= 6;
+			}
+
+		}
+
+		
+		else if (m_scenario == "UMa")
+		{
+			if(distance2D < 10)
+			{
+				NS_LOG_UNCOND ("The 2D distance is smaller than 10 meters, the 3GPP UMa model may not be accurate");
+			}
+
+			//default base station value is 25 m
+			//hBs = 25;
+
+			if (hUt < 1.5 || hUt > 22.5 )
+			{
+				NS_FATAL_ERROR ("According to table 7.4.1-1, the UMa scenario need to satisfy the following condition, 1.5 m <= hUT <= 22.5 m");
+			}
+			//For UMa, the effective environment height should be computed follow Table7.4.1-1.
+			
+			double dBP = 4*(hBs)*(hUt)*m_frequency/3e8;
+			if(distance2D <= dBP)
+			{
+				//PL1
+				lossDb = 32.4+20*log10(distance3D)+20*log10(freqGHz);
+			}
+			else
+			{
+				//PL2
+				lossDb = 32.4+40*log10(distance3D)+20*log10(freqGHz)-10*log10(pow(dBP,2)+pow(hBs-hUt,2));
+			}
+		}
+
+		else if (m_scenario == "UMi-StreetCanyon")
+		{
+
+			if(distance2D < 10)
+			{
+				//NS_LOG_UNCOND ("The 2D distance is smaller than 10 meters, the 3GPP UMi-StreetCanyon model may not be accurate");
+			}
+
+			//default base station value is 10 m
+			//hBs = 10;
+
+			if (hUt < 1.5 || hUt > 22.5 )
+			{
+				NS_FATAL_ERROR ("According to table 7.4.1-1, the UMi-StreetCanyon scenario need to satisfy the following condition, 1.5 m <= hUT <= 22.5 m");
+			}
+			double dBP = 4*(hBs-1)*(hUt-1)*m_frequency/3e8;
+			if(distance2D <= dBP)
+			{
+				//PL1
+				lossDb = 32.4+21*log10(distance3D)+20*log10(freqGHz);
+			}
+			else
+			{
+				//PL2
+				lossDb = 32.4+40*log10(distance3D)+20*log10(freqGHz)-9.5*log10(pow(dBP,2)+pow(hBs-hUt,2));
+			}
+
+		}
+		else if (m_scenario == "InH-OfficeMixed" || m_scenario == "InH-OfficeOpen")
+		{
+			if(distance3D < 1 || distance3D > 100)
+			{
+				NS_LOG_UNCOND ("The pathloss might not be accurate since 3GPP InH-Office model LoS condition is accurate only within 3D distance between 1 m and 100 m");
+			}
+
+			lossDb = 32.4+17.3*log10(distance3D)+20*log10(freqGHz);
+		}
+
+		else if (m_scenario == "InH-ShoppingMall")
+		{
+			// shadowingCorDistance = 10; //I use the office correlation distance since shopping mall is not in the table.
+
+			if(distance3D < 1 || distance3D > 150)
+			{
+				NS_LOG_UNCOND ("The pathloss might not be accurate since 3GPP InH-Shopping mall model only supports 3D distance between 1 m and 150 m");\
+			}
+			lossDb = 32.4+17.3*log10(distance3D)+20*log10(freqGHz);
+			// shadowingStd = 2;
+		}
+		else
+		{
+			NS_FATAL_ERROR ("Unknown channel condition");
+		}
+
+	
+		// if(DynamicCast<LteEnbNetDevice> (b->GetObject<Node> ()->GetDevice(0)) != 0)
+	  //       {
+
+		// lossDb= 0;
+	
+	  //       }
+	        
+		// if(DynamicCast<LteEnbNetDevice> (b->GetObject<Node> ()->GetDevice(0)) != 0)
+	  //       {
+
+		// lossDb= 0;
+	
+	  //       }
+
+	return std::max (lossDb, m_minLoss);
+}
+/////////////////////////
+
+
+
+
+
+int64_t
+MmWavePropagationLossModel::DoAssignStreams (int64_t stream)
+{
+  return 0;
+}
+
+
+// ------------------------------------------------------------------------- //
+
+
+
+// ------------------------------------------------------------------------- //
+// -- Terahertz propagation loss model -- //
+
+NS_OBJECT_ENSURE_REGISTERED (TerahertzPropagationLossModel);
+
+TypeId 
+TerahertzPropagationLossModel::GetTypeId (void)
+{
+  static TypeId tid = TypeId ("ns3::TerahertzPropagationLossModel")
+    .SetParent<PropagationLossModel> ()
+    .SetGroupName ("Propagation")
+    .AddConstructor<TerahertzPropagationLossModel> ()
+    .AddAttribute ("Frequency", 
+                   "The carrier frequency (in Hz) at which propagation occurs  (default is 300 GHz).",
+                   DoubleValue (3.000e11),
+                   MakeDoubleAccessor (&TerahertzPropagationLossModel::SetFrequency,
+                                       &TerahertzPropagationLossModel::GetFrequency),
+                   MakeDoubleChecker<double> ())
+  ;
+  return tid;
+}
+
+TerahertzPropagationLossModel::TerahertzPropagationLossModel ()
+{
+}
+
+
+void
+TerahertzPropagationLossModel::SetFrequency (double frequency)
+{
+  m_frequency = frequency;
+  static const double C = 299792458.0; // speed of light in vacuum
+  m_lambda = C / frequency;
+}
+
+
+double
+TerahertzPropagationLossModel::GetFrequency (void) const
+{
+  return m_frequency;
+}
+
+
+double 
+TerahertzPropagationLossModel::DoCalcRxPower (double txPowerDbm,
+                                                 Ptr<MobilityModel> a,
+                                                 Ptr<MobilityModel> b) const
+{
+
+  NS_ASSERT (a);
+  NS_ASSERT (b);
+  double d = a->GetDistanceFrom (b);
+  double frequency = TerahertzPropagationLossModel::GetFrequency();
+  double lossDb = 10 * std::log10 (CalculateSpreadLoss (frequency, d)) + 10 * std::log10 (CalculateAbsLoss (frequency, d));
+
+  return txPowerDbm - lossDb;
+
+}
+
+double
+TerahertzPropagationLossModel::CalculateSpreadLoss (double f, double d) const
+{
+  NS_ASSERT (d >= 0);
+ f = 3.000e11;
+  if (d == 0)
+    {
+      return 0;
+    }
+
+  NS_ASSERT (f > 0);
+  double loss_sqrt = (4 * M_PI * f * d) / 3e8;
+  double loss = loss_sqrt * loss_sqrt;
+  return loss;
+}
+
+double
+TerahertzPropagationLossModel::CalculateAbsLoss (double f, double d) const
+{       f = 3.000e11;
+  std::ifstream AbsCoefile;
+  AbsCoefile.open ("src/propagation/model/data_AbsCoe.txt", std::ifstream::in);
+  if (!AbsCoefile.is_open ())
+    {
+      NS_FATAL_ERROR ("TerahertzPropagationLossModel::CalculateAbsLoss: open data_AbsCoe.txt failed 1");
+    }
+
+  std::ifstream frequencyfile;
+  frequencyfile.open ("src/propagation/model/data_frequency.txt", std::ifstream::in);
+  if (!frequencyfile.is_open ())
+    {
+      NS_FATAL_ERROR ("TerahertzPropagationLossModel::CalculateAbsLoss: open data_frequency.txt failed");
+    }
+  double f_ite;
+  double k_ite;
+  double kf = 0.0;
+  double loss = 0.0;
+  int i = 0;
+  int j = 0;
+
+
+  while (frequencyfile >> f_ite)
+    {
+      if (f_ite < f - 9.894e8 || f_ite > f + 9.894e8)
+        {
+          j++;
+        }
+      else
+        {
+          break;
+        }
+    }
+  while (AbsCoefile >> k_ite)
+    {
+      if (i != j)
+        {
+          i++;
+        }
+      else
+        {
+          kf = k_ite;
+          break;
+        }
+      NS_ASSERT (d >= 0);
+
+      if (d == 0)
+        {
+          return 0;
+        }
+    }
+  NS_ASSERT (f > 0);
+  loss = exp (kf * d);
+  return loss;
+}
+
+int64_t
+TerahertzPropagationLossModel::DoAssignStreams (int64_t stream)
+{
+  return 0;
+}
+
+
+
+
 
 // ------------------------------------------------------------------------- //
 

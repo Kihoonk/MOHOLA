@@ -685,7 +685,7 @@ LteEnbRrcProtocolReal::DoSendRrcConnectionRelease (uint16_t rnti, LteRrcSap::Rrc
 
 void
 LteEnbRrcProtocolReal::DoReceivePdcpPdu (uint16_t rnti, Ptr<Packet> p)
-{
+{ std::cout << "DoReceivePdcpPdu " << std::endl;
   // Get type of message received
   RrcUlCcchMessage rrcUlCcchMessage;
   p->PeekHeader (rrcUlCcchMessage);

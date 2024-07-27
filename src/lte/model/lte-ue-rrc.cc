@@ -192,6 +192,34 @@ LteUeRrc::DoDispose ()
   m_drbMap.clear ();
 }
 
+// New
+// TTT, HOM
+void
+LteUeRrc::ChangeTtt (uint16_t TTT)
+{
+  // std::vector<uint16_t>TttVector = {0, 40, 64, 80, 100, 128, 160, 256, 320, 480, 512, 640, 1024, 1280, 2560, 5120};
+
+  // Ttt = TttVector[TttIndex];
+
+  Ttt = TTT;
+
+  // std::cout<<"UE IMSI: "<<m_imsi<<"  New TTT: "<<Ttt<<std::endl;
+}
+
+// New
+void
+LteUeRrc::ChangeHom (double HOM)
+{
+  // std::vector<double>HomVector = {0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0, 13.0, 14.0, 15.0, 
+  //                                   16.0, 17.0, 18.0, 19.0, 20.0, 21.0, 22.0, 23.0, 24.0, 25.0, 26.0, 27.0, 28.0, 29.0, 30.0};
+
+  // Hom = HomVector[HomIndex];
+
+  Hom = HOM;
+
+  // std::cout<<"UE IMSI: "<<m_imsi<<"  New HOM: "<<Hom<<std::endl;
+}
+
 
 void 
 LteUeRrc::DoReportUeMeasurements_fromMeasConfig () {
@@ -2134,7 +2162,11 @@ LteUeRrc::MeasurementReportTriggering (uint8_t measId)
           // Off, the offset parameter for this event.
           double off = EutranMeasurementMapping::IeValue2ActualA3Offset (reportConfigEutra.a3Offset);
           // Hys, the hysteresis parameter for this event.
-          double hys = EutranMeasurementMapping::IeValue2ActualHysteresis (reportConfigEutra.hysteresis);
+          // double hys = EutranMeasurementMapping::IeValue2ActualHysteresis (reportConfigEutra.hysteresis);
+
+          // HOM
+          // New
+          double hys = Hom;
 
           switch (reportConfigEutra.triggerQuantity)
             {
@@ -2203,7 +2235,8 @@ LteUeRrc::MeasurementReportTriggering (uint8_t measId)
                       eventEntryCondApplicable = true;
                     }
                 }
-              else if (reportConfigEutra.timeToTrigger > 0)
+              // else if (reportConfigEutra.timeToTrigger > 0)
+              else if (Ttt > 0) // New, TTT
                 {
                   CancelEnteringTrigger (measId, cellId);
                 }
@@ -2219,7 +2252,8 @@ LteUeRrc::MeasurementReportTriggering (uint8_t measId)
                       eventLeavingCondApplicable = true;
                     }
                 }
-              else if (reportConfigEutra.timeToTrigger > 0)
+              // else if (reportConfigEutra.timeToTrigger > 0)
+              else if (Ttt > 0) // New, TTT
                 {
                   CancelLeavingTrigger (measId, cellId);
                 }
@@ -2616,7 +2650,8 @@ LteUeRrc::MeasurementReportTriggering (uint8_t measId)
 
   if (eventEntryCondApplicable)
     {
-      if (reportConfigEutra.timeToTrigger == 0)
+      // if (reportConfigEutra.timeToTrigger == 0)
+      if (Ttt == 0) // New, TTT
         {
           VarMeasReportListAdd (measId, concernedCellsEntry);
         }
@@ -2625,9 +2660,15 @@ LteUeRrc::MeasurementReportTriggering (uint8_t measId)
           PendingTrigger_t t;
           t.measId = measId;
           t.concernedCells = concernedCellsEntry;
-          t.timer = Simulator::Schedule (MilliSeconds (reportConfigEutra.timeToTrigger),
+          // t.timer = Simulator::Schedule (MilliSeconds (reportConfigEutra.timeToTrigger),
+          //                                &LteUeRrc::VarMeasReportListAdd, this,
+          //                                measId, concernedCellsEntry);
+
+          // New, TTT
+          t.timer = Simulator::Schedule (MilliSeconds (Ttt),
                                          &LteUeRrc::VarMeasReportListAdd, this,
                                          measId, concernedCellsEntry);
+
           std::map<uint8_t, std::list<PendingTrigger_t> >::iterator
             enteringTriggerIt = m_enteringTriggerQueue.find (measId);
           NS_ASSERT (enteringTriggerIt != m_enteringTriggerQueue.end ());
@@ -2641,7 +2682,8 @@ LteUeRrc::MeasurementReportTriggering (uint8_t measId)
       bool reportOnLeave = (reportConfigEutra.eventId == LteRrcSap::ReportConfigEutra::EVENT_A3)
         && reportConfigEutra.reportOnLeave;
 
-      if (reportConfigEutra.timeToTrigger == 0)
+      // if (reportConfigEutra.timeToTrigger == 0)
+      if (Ttt == 0) // New, TTT
         {
           VarMeasReportListErase (measId, concernedCellsLeaving, reportOnLeave);
         }
@@ -2650,9 +2692,15 @@ LteUeRrc::MeasurementReportTriggering (uint8_t measId)
           PendingTrigger_t t;
           t.measId = measId;
           t.concernedCells = concernedCellsLeaving;
-          t.timer = Simulator::Schedule (MilliSeconds (reportConfigEutra.timeToTrigger),
+          // t.timer = Simulator::Schedule (MilliSeconds (reportConfigEutra.timeToTrigger),
+          //                                &LteUeRrc::VarMeasReportListErase, this,
+          //                                measId, concernedCellsLeaving, reportOnLeave);
+
+          // New, TTT
+          t.timer = Simulator::Schedule (MilliSeconds (Ttt),
                                          &LteUeRrc::VarMeasReportListErase, this,
                                          measId, concernedCellsLeaving, reportOnLeave);
+
           std::map<uint8_t, std::list<PendingTrigger_t> >::iterator
             leavingTriggerIt = m_leavingTriggerQueue.find (measId);
           NS_ASSERT (leavingTriggerIt != m_leavingTriggerQueue.end ());
@@ -2795,6 +2843,7 @@ LteUeRrc::VarMeasReportListAdd (uint8_t measId, ConcernedCells_t enteringCells)
   std::map<uint8_t, VarMeasReport>::iterator
     measReportIt = m_varMeasReportList.find (measId);
 
+
   if (measReportIt == m_varMeasReportList.end ())
     {
       VarMeasReport r;
@@ -2864,9 +2913,15 @@ LteUeRrc::VarMeasReportListErase (uint8_t measId, ConcernedCells_t leavingCells,
 {
   NS_LOG_FUNCTION (this << (uint16_t) measId);
   NS_ASSERT (!leavingCells.empty ());
-
   std::map<uint8_t, VarMeasReport>::iterator
-    measReportIt = m_varMeasReportList.find (measId);
+  measReportIt = m_varMeasReportList.find (measId);
+  float id3 = measId;
+  float id4 = measReportIt->second.measId;
+  std::cout<<"id3"<<id3<<std::endl;
+  std::cout<<"id4"<<id4<<std::endl;
+ if (id4 !=0) {
+
+
   NS_ASSERT (measReportIt != m_varMeasReportList.end ());
 
   for (ConcernedCells_t::const_iterator it = leavingCells.begin ();
@@ -2875,6 +2930,7 @@ LteUeRrc::VarMeasReportListErase (uint8_t measId, ConcernedCells_t leavingCells,
     {
       measReportIt->second.cellsTriggeredList.erase (*it);
     }
+
 
   if (reportOnLeave)
     {
@@ -2887,6 +2943,7 @@ LteUeRrc::VarMeasReportListErase (uint8_t measId, ConcernedCells_t leavingCells,
       measReportIt->second.periodicReportTimer.Cancel ();
       m_varMeasReportList.erase (measReportIt);
     }
+
 
   std::map<uint8_t, std::list<PendingTrigger_t> >::iterator
     leavingTriggerIt = m_leavingTriggerQueue.find (measId);
@@ -2916,7 +2973,7 @@ LteUeRrc::VarMeasReportListErase (uint8_t measId, ConcernedCells_t leavingCells,
         }
 
     } // end of if (!leavingTriggerIt->second.empty ())
-
+ }
 } // end of LteUeRrc::VarMeasReportListErase
 
 void

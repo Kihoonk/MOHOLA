@@ -161,7 +161,7 @@ HybridBuildingsPropagationLossModel::GetLoss (Ptr<MobilityModel> a, Ptr<Mobility
     {
       if (!isBIndoor) // b is outdoor
         {
-          if (distance > 1000)
+          if (distance > 1)
             {
               NS_LOG_INFO (this << a->GetPosition ().z << b->GetPosition ().z << m_rooftopHeight);
               if ((a->GetPosition ().z < m_rooftopHeight)
@@ -187,7 +187,7 @@ HybridBuildingsPropagationLossModel::GetLoss (Ptr<MobilityModel> a, Ptr<Mobility
       else
         {
           // b indoor
-          if (distance > 1000)
+          if (distance > 1)
             {
               if ((a->GetPosition ().z < m_rooftopHeight)
                   && (b->GetPosition ().z < m_rooftopHeight))
@@ -230,7 +230,7 @@ HybridBuildingsPropagationLossModel::GetLoss (Ptr<MobilityModel> a, Ptr<Mobility
       else
         {
           // b is outdoor
-          if (distance > 1000)
+          if (distance > 1)
             {
               if ((a->GetPosition ().z < m_rooftopHeight)
                   && (b->GetPosition ().z < m_rooftopHeight))

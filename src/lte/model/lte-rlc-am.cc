@@ -753,7 +753,7 @@ LteRlcAm::DoNotifyHarqDeliveryFailure ()
 
 void
 LteRlcAm::DoReceivePdu (LteMacSapUser::ReceivePduParameters rxPduParams)
-{
+{  std::cout << "**" << std::endl;
   NS_LOG_FUNCTION (this << m_rnti << (uint32_t) m_lcid << rxPduParams.p->GetSize ());
 
   // Get RLC header parameters

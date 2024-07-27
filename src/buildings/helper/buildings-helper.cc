@@ -70,7 +70,7 @@ BuildingsHelper::MakeMobilityModelConsistent ()
         {
           Ptr<MobilityBuildingInfo> bmm = mm->GetObject<MobilityBuildingInfo> ();
           NS_ABORT_MSG_UNLESS (0 != bmm, "node " << (*nit)->GetId () << " has a MobilityModel that does not have a MobilityBuildingInfo");
-          bmm->MakeConsistent (mm);
+          // bmm->MakeConsistent (mm); building added
         }
     }
 }

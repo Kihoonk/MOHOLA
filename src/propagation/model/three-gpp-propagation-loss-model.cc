@@ -27,6 +27,7 @@
 #include <cmath>
 #include "ns3/node.h"
 #include "ns3/simulator.h"
+#include "propagation-loss-model.h"
 
 namespace ns3 {
 
@@ -51,13 +52,20 @@ ThreeGppPropagationLossModel::GetTypeId (void)
                    MakeDoubleChecker<double> ())
     .AddAttribute ("ShadowingEnabled", "Enable/disable shadowing.",
                    BooleanValue (true),
-                   MakeBooleanAccessor (&ThreeGppPropagationLossModel::m_shadowingEnabled),
+                   MakeBooleanAccessor (&ThreeGppPropagationLossModel::m_shadowingEnabled),  //0504
                    MakeBooleanChecker ())
     .AddAttribute ("ChannelConditionModel", "Pointer to the channel condition model.",
                    PointerValue (),
                    MakePointerAccessor (&ThreeGppPropagationLossModel::SetChannelConditionModel,
                                         &ThreeGppPropagationLossModel::GetChannelConditionModel),
                    MakePointerChecker<ChannelConditionModel> ())
+    .AddAttribute ("MinLoss", //0504
+                   "The minimum value (dB) of the total loss, used at short ranges.",
+                   DoubleValue (0.0),
+                   MakeDoubleAccessor (&MmWavePropagationLossModel::SetMinLoss,
+                                       &MmWavePropagationLossModel::GetMinLoss),
+                   MakeDoubleChecker<double> ())
+
   ;
   return tid;
 }
@@ -100,12 +108,25 @@ ThreeGppPropagationLossModel::GetChannelConditionModel () const
   return m_channelConditionModel;
 }
 
+// void
+// MmWavePropagationLossModel::SetMinLoss (double minLoss) //0504
+// {
+//   m_minLoss = minLoss;
+// }
+// double
+// MmWavePropagationLossModel::GetMinLoss (void) const
+// {
+//   return m_minLoss;
+// }
+
 void
-ThreeGppPropagationLossModel::SetFrequency (double f)
+ThreeGppPropagationLossModel::SetFrequency (double f) //0504
 {
   NS_LOG_FUNCTION (this);
   NS_ASSERT_MSG (f >= 500.0e6 && f <= 100.0e9, "Frequency should be between 0.5 and 100 GHz but is " << f);
   m_frequency = f;
+  static const double C = 299792458.0; // speed of light in vacuum
+   m_lambda = C / f;
 }
 
 double
@@ -113,6 +134,7 @@ ThreeGppPropagationLossModel::GetFrequency () const
 {
   NS_LOG_FUNCTION (this);
   return m_frequency;
+  
 }
 
 double
@@ -136,16 +158,18 @@ ThreeGppPropagationLossModel::DoCalcRxPower (double txPowerDbm,
   double distance3d = CalculateDistance (a->GetPosition (), b->GetPosition ());
 
   // compute hUT and hBS
-  std::pair<double, double> heights = GetUtAndBsHeights (a->GetPosition ().z, b->GetPosition ().z);
+  std::pair<double, double> heights = GetUtAndBsHeights (a->GetPosition ().z, b->GetPosition ().  z);
 
   double rxPow = txPowerDbm;
   rxPow -= GetLoss (cond, distance2d, distance3d, heights.first, heights.second); 
   
-  if (m_shadowingEnabled)
+  
+
+  if ((m_shadowingEnabled)&(cond->GetLosCondition () == ChannelCondition::LosConditionValue::NLOS)) //0504
     {
       rxPow -= GetShadowing (a, b, cond->GetLosCondition ());
     }
-
+  
   return rxPow;
 }
 
@@ -154,23 +178,30 @@ ThreeGppPropagationLossModel::GetLoss (Ptr<ChannelCondition> cond, double distan
 {
   NS_LOG_FUNCTION (this);
   
+
   double loss = 0;
   if (cond->GetLosCondition () == ChannelCondition::LosConditionValue::LOS)
     {
+      
       loss = GetLossLos (distance2d, distance3d, hUt, hBs);
     }
   else if (cond->GetLosCondition () == ChannelCondition::LosConditionValue::NLOSv)
     {
+     
       loss = GetLossNlosv (distance2d, distance3d, hUt, hBs);
     }
   else if (cond->GetLosCondition () == ChannelCondition::LosConditionValue::NLOS)
-    {
+    { 
+      
       loss = GetLossNlos (distance2d, distance3d, hUt, hBs);
     }
   else
     {
       NS_FATAL_ERROR ("Unknown channel condition");
     }
+
+ 
+
   return loss;
 }
 
@@ -215,7 +246,8 @@ ThreeGppPropagationLossModel::GetShadowing (Ptr<MobilityModel> a, Ptr<MobilityMo
   if (notFound || newCondition)
     {
       // generate a new independent realization
-      shadowingValue = m_normRandomVariable->GetValue () * GetShadowingStd (a, b, cond);
+      shadowingValue = m_normRandomVariable->GetValue () * GetShadowingStd (a, b, cond);//0504
+     
     }
   else
     {
@@ -223,6 +255,7 @@ ThreeGppPropagationLossModel::GetShadowing (Ptr<MobilityModel> a, Ptr<MobilityMo
       Vector2D displacement (newDistance.x - it->second.m_distance.x, newDistance.y - it->second.m_distance.y);
       double R = exp (-1 * displacement.GetLength () / GetShadowingCorrelationDistance (cond));
       shadowingValue =  R * it->second.m_shadowing + sqrt (1 - R * R) * m_normRandomVariable->GetValue () * GetShadowingStd (a, b, cond);
+      
     }
 
   // update the entry in the map

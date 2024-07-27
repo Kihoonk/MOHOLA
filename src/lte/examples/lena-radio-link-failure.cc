@@ -522,7 +522,7 @@ main (int argc, char *argv[])
                                  MakeCallback (&UeStateTransition));
   Config::ConnectWithoutContext ("/NodeList/*/DeviceList/*/LteUeRrc/PhySyncDetection",
                                  MakeBoundCallback (&PhySyncDetection, n310));
-  Config::ConnectWithoutContext ("/NodeList/*/DeviceList/*/LteUeRrc/RadioLinkFailure",
+  Config::ConnectWithoutContext ("Rrc/RadioLinkFailure",
                                  MakeBoundCallback (&RadioLinkFailure, t310));
   Config::ConnectWithoutContext ("/NodeList/*/DeviceList/*/LteEnbRrc/NotifyConnectionRelease",
                                  MakeCallback (&NotifyConnectionReleaseAtEnodeB));

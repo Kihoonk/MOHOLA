@@ -37,7 +37,7 @@ class Ns3ZmqBridge(object):
         self.ns3Process = None
 
         context = zmq.Context()
-        self.socket = context.socket(zmq.REP)
+        self.socket = context.socket(zmq.REP) #server
         try:
             if port == 0 and self.startSim:
                 port = self.socket.bind_to_random_port('tcp://*', min_port=5001, max_port=10000, max_tries=100)
@@ -102,6 +102,7 @@ class Ns3ZmqBridge(object):
             discreteSpacePb = pb.DiscreteSpace()
             spaceDesc.space.Unpack(discreteSpacePb)
             space = spaces.Discrete(discreteSpacePb.n)
+           
 
         elif (spaceDesc.type == pb.Box):
             boxSpacePb = pb.BoxSpace()

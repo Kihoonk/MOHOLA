@@ -261,7 +261,7 @@ LteEnbNetDevice::SetMacScheduler (std::map <uint8_t, Ptr<FfMacScheduler> > ff_ma
   // }
   // std::cout<<std::endl;
   
-  std::cout<<"PrintPrintPRBUSAGE"<<std::endl;
+  // std::cout<<"PrintPrintPRBUSAGE"<<std::endl;
 }
 
 

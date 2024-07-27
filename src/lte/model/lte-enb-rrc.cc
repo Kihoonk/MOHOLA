@@ -363,6 +363,28 @@ TypeId UeManager::GetTypeId (void)
   return tid;
 }
 
+/// New
+bool
+UeManager::GetHoSuccess ()
+{
+  return HoSuccess;
+}
+void
+UeManager::SetHoSuccess (bool newHoSuccess)
+{
+  HoSuccess = newHoSuccess;
+}
+
+uint64_t
+UeManager:: Gethandovernum(void){
+  return handovernum;
+}
+
+void
+UeManager:: Sethandovernum(void){
+ handovernum = 0;
+}
+
 void 
 UeManager::SetSource (uint16_t sourceCellId, uint16_t sourceX2apId)
 {
@@ -690,6 +712,14 @@ UeManager::PrepareHandover (uint16_t cellId)
         NS_LOG_LOGIC ("mmeUeS1apId = " << params.mmeUeS1apId);
         NS_LOG_LOGIC ("rrcContext   = " << params.rrcContext);
 
+
+        // New
+        // std::cout<<"Handover Request:  Source CellId: "<<params.sourceCellId<<"  Tatget CellId: "<<params.targetCellId<<"  HoSuccess: "<<HoSuccess<<std::endl;
+        // if(HoSuccess == true){
+        //   m_rrc->m_x2SapProvider->SendHandoverRequest (params);
+        //   SwitchToState (HANDOVER_PREPARATION);
+        //   HoSuccess = false;
+        // }
         m_rrc->m_x2SapProvider->SendHandoverRequest (params);
         SwitchToState (HANDOVER_PREPARATION);
       }
@@ -884,8 +914,15 @@ UeManager::SendUeContextRelease ()
       ueCtxReleaseParams.sourceCellId = m_sourceCellId;
       ueCtxReleaseParams.targetCellId = m_targetCellId;
       m_rrc->m_x2SapProvider->SendUeContextRelease (ueCtxReleaseParams);
+
+     // std::cout<<"HANDOVER_PATH_SWITCH in RNTI "<<m_rnti<<std::endl;
+
       SwitchToState (CONNECTED_NORMALLY);
+
+      // std::cout<<"CONNECTED_NORMALLY "<<m_rnti<<std::endl;
+
       m_rrc->m_handoverEndOkTrace (m_imsi, m_rrc->ComponentCarrierToCellId (m_componentCarrierId), m_rnti);
+      handovernum+=1;
       break;
 
     default:
@@ -1163,6 +1200,7 @@ UeManager::RecvRrcConnectionReestablishmentRequest (LteRrcSap::RrcConnectionRees
   msg2.rrcTransactionIdentifier = GetNewRrcTransactionIdentifier ();
   msg2.radioResourceConfigDedicated = BuildRadioResourceConfigDedicated ();
   m_rrc->m_rrcSapUser->SendRrcConnectionReestablishment (m_rnti, msg2);
+
   SwitchToState (CONNECTION_REESTABLISHMENT);
 }
 
@@ -2211,7 +2249,25 @@ LteEnbRrc::GetUeManager (uint16_t rnti)
   NS_LOG_FUNCTION (this << (uint32_t) rnti);
   NS_ASSERT (0 != rnti);
   std::map<uint16_t, Ptr<UeManager> >::iterator it = m_ueMap.find (rnti);
+
+  // New
+  if(!HasUeManager(rnti)){
+    // std::cout<<"No rnti: "<<rnti<<"  in Cell: "<<temp_cellId<<std::endl;
+  }
+
+// if(it != m_ueMap.end() )
+//   {Ptr<UeManager> temp_manager = m_ueMap[rnti];
+//   uint64_t temp_imsi = temp_manager->GetImsi();
+//   // uint16_t temp_cellId = m_cellId;
+  
+
+
+//   std::cout<<" IMSI: "<<temp_imsi<<std::endl;
   NS_ASSERT_MSG (it != m_ueMap.end (), "UE manager for RNTI " << rnti << " not found");
+  
+
+ 
+  // }
   return it->second;
 }
 
@@ -2492,6 +2548,7 @@ LteEnbRrc::ConfigureCell (std::map<uint8_t, Ptr<ComponentCarrierBaseStation>> cc
 void
 LteEnbRrc::SetCellId (uint16_t cellId)
 {
+  m_cellId = cellId;
   // update SIB1
   m_sib1.at (0).cellAccessRelatedInfo.cellIdentity = cellId;
   m_cphySapProvider.at (0)->SetSystemInformationBlockType1 (m_sib1.at (0));
@@ -2500,6 +2557,7 @@ LteEnbRrc::SetCellId (uint16_t cellId)
 void
 LteEnbRrc::SetCellId (uint16_t cellId, uint8_t ccIndex)
 {
+  m_cellId = cellId;
   // update SIB1
   m_sib1.at (ccIndex).cellAccessRelatedInfo.cellIdentity = cellId;
   m_cphySapProvider.at (ccIndex)->SetSystemInformationBlockType1 (m_sib1.at (ccIndex));
@@ -2549,6 +2607,8 @@ LteEnbRrc::SetForwardUpCallback (Callback <void, Ptr<Packet> > cb)
 void
 LteEnbRrc::ConnectionRequestTimeout (uint16_t rnti)
 {
+  // New
+  // std::cout<< "ConnectionRequestTimeout******RemoveUe*******"<<"  RNTI: "<<rnti<<" Cell ID: "<<m_cellId<<std::endl;
   NS_LOG_FUNCTION (this << rnti);
   NS_ASSERT_MSG (GetUeManager (rnti)->GetState () == UeManager::INITIAL_RANDOM_ACCESS,
                  "ConnectionRequestTimeout in unexpected state " << ToString (GetUeManager (rnti)->GetState ()));
@@ -2560,6 +2620,8 @@ LteEnbRrc::ConnectionRequestTimeout (uint16_t rnti)
 void
 LteEnbRrc::ConnectionSetupTimeout (uint16_t rnti)
 {
+  // New
+  // std::cout<< "ConnectionSetupTimeout******RemoveUe*******"<<"  RNTI: "<<rnti<<" Cell ID: "<<m_cellId<<std::endl;
   NS_LOG_FUNCTION (this << rnti);
   NS_ASSERT_MSG (GetUeManager (rnti)->GetState () == UeManager::CONNECTION_SETUP,
                  "ConnectionSetupTimeout in unexpected state " << ToString (GetUeManager (rnti)->GetState ()));
@@ -2571,6 +2633,8 @@ LteEnbRrc::ConnectionSetupTimeout (uint16_t rnti)
 void
 LteEnbRrc::ConnectionRejectedTimeout (uint16_t rnti)
 {
+  // New
+  // std::cout<< "ConnectionRejectedTimeout******RemoveUe*******"<<"  RNTI: "<<rnti<<" Cell ID: "<<ComponentCarrierToCellId (GetUeManager (rnti)->GetComponentCarrierId ())<<std::endl;
   NS_LOG_FUNCTION (this << rnti);
   NS_ASSERT_MSG (GetUeManager (rnti)->GetState () == UeManager::CONNECTION_REJECTED,
                  "ConnectionRejectedTimeout in unexpected state " << ToString (GetUeManager (rnti)->GetState ()));
@@ -2582,23 +2646,25 @@ LteEnbRrc::ConnectionRejectedTimeout (uint16_t rnti)
 void
 LteEnbRrc::HandoverJoiningTimeout (uint16_t rnti)
 {
-  NS_LOG_FUNCTION (this << rnti);
-  NS_ASSERT_MSG (GetUeManager (rnti)->GetState () == UeManager::HANDOVER_JOINING,
-                 "HandoverJoiningTimeout in unexpected state " << ToString (GetUeManager (rnti)->GetState ()));
-  m_rrcTimeoutTrace (GetUeManager (rnti)->GetImsi (), rnti,
-                     ComponentCarrierToCellId (GetUeManager (rnti)->GetComponentCarrierId ()), "HandoverJoiningTimeout");
+  // New
+  // std::cout<< "HandoverJoiningTimeout******RemoveUe*******"<<"  RNTI: "<<rnti<<" Cell ID: "<<ComponentCarrierToCellId (GetUeManager (rnti)->GetComponentCarrierId ())<<std::endl;
+  // NS_LOG_FUNCTION (this << rnti);
+  // NS_ASSERT_MSG (GetUeManager (rnti)->GetState () == UeManager::HANDOVER_JOINING,
+  //                "HandoverJoiningTimeout in unexpected state " << ToString (GetUeManager (rnti)->GetState ()));
+  // m_rrcTimeoutTrace (GetUeManager (rnti)->GetImsi (), rnti,
+  //                    ComponentCarrierToCellId (GetUeManager (rnti)->GetComponentCarrierId ()), "HandoverJoiningTimeout");
 
-  /**
-   * When the handover joining timer expires at the target cell,
-   * then notify the source cell to release the RRC connection and
-   * delete the UE context at eNodeB and SGW/PGW. The
-   * HandoverPreparationFailure message is reused to notify the source cell
-   * through the X2 interface instead of creating a new message.
-   */
-  Ptr<UeManager> ueManger = GetUeManager (rnti);
-  EpcX2Sap::HandoverPreparationFailureParams msg = ueManger->BuildHoPrepFailMsg ();
-  m_x2SapProvider->SendHandoverPreparationFailure (msg);
-  RemoveUe (rnti);
+  // /**
+  //  * When the handover joining timer expires at the target cell,
+  //  * then notify the source cell to release the RRC connection and
+  //  * delete the UE context at eNodeB and SGW/PGW. The
+  //  * HandoverPreparationFailure message is reused to notify the source cell
+  //  * through the X2 interface instead of creating a new message.
+  //  */
+  // Ptr<UeManager> ueManger = GetUeManager (rnti);
+  // EpcX2Sap::HandoverPreparationFailureParams msg = ueManger->BuildHoPrepFailMsg ();
+  // m_x2SapProvider->SendHandoverPreparationFailure (msg);
+  // RemoveUe (rnti);
 }
 
 void
@@ -2631,6 +2697,8 @@ LteEnbRrc::SendHandoverRequest (uint16_t rnti, uint16_t cellId)
   NS_LOG_FUNCTION (this << rnti << cellId);
   NS_LOG_LOGIC ("Request to send HANDOVER REQUEST");
   NS_ASSERT (m_configured);
+
+  // std::cout<<"Send Handover Request  RNTI: "<<rnti<<"  Cell ID: "<<cellId<<std::endl;
 
   Ptr<UeManager> ueManager = GetUeManager (rnti);
   ueManager->PrepareHandover (cellId);
@@ -2697,24 +2765,26 @@ LteEnbRrc::DoInitialContextSetupRequest (EpcEnbS1SapUser::InitialContextSetupReq
 void 
 LteEnbRrc::DoRecvIdealUeContextRemoveRequest (uint16_t rnti)
 {
-  NS_LOG_FUNCTION (this << rnti);
-  Ptr<UeManager> ueManager = GetUeManager (rnti);
+  // New
+  // std::cout<< "DoRecvIdealUeContextRemoveRequest******RemoveUe*******"<<"  RNTI: "<<rnti<<" Cell ID: "<<ComponentCarrierToCellId (GetUeManager (rnti)->GetComponentCarrierId ())<<std::endl;
+  // NS_LOG_FUNCTION (this << rnti);
+  // Ptr<UeManager> ueManager = GetUeManager (rnti);
 
-  if (ueManager->GetState () == UeManager::HANDOVER_JOINING)
-    {
-      /**
-       * During the HO, when the RACH failure due to the maximum number of
-       * re-attempts is reached the UE request the target eNB to deletes its
-       * context. Upon which, the target eNB sends handover preparation
-       * failure to the source eNB.
-       */
-      EpcX2Sap::HandoverPreparationFailureParams msg = ueManager->BuildHoPrepFailMsg ();
-      m_x2SapProvider->SendHandoverPreparationFailure (msg);
-    }
+  // if (ueManager->GetState () == UeManager::HANDOVER_JOINING)
+  //   {
+  //     /**
+  //      * During the HO, when the RACH failure due to the maximum number of
+  //      * re-attempts is reached the UE request the target eNB to deletes its
+  //      * context. Upon which, the target eNB sends handover preparation
+  //      * failure to the source eNB.
+  //      */
+  //     EpcX2Sap::HandoverPreparationFailureParams msg = ueManager->BuildHoPrepFailMsg ();
+  //     m_x2SapProvider->SendHandoverPreparationFailure (msg);
+  //   }
 
-  GetUeManager (rnti)->RecvIdealUeContextRemoveRequest (rnti);
+  // GetUeManager (rnti)->RecvIdealUeContextRemoveRequest (rnti);
   //delete the UE context at the eNB
-  RemoveUe (rnti);
+  // RemoveUe (rnti);
 }
 
 void
@@ -2730,6 +2800,15 @@ LteEnbRrc::DoPathSwitchRequestAcknowledge (EpcEnbS1SapUser::PathSwitchRequestAck
 {
   NS_LOG_FUNCTION (this);
   Ptr<UeManager> ueManager = GetUeManager (params.rnti);
+
+  // bool temp_HoSuccess = ueManager->GetHoSuccess();
+  // // New
+  // ueManager->SetHoSuccess(true);
+
+  // std::cout<<"RNTI: "<<params.rnti<<"  Old Ho Success: "<<temp_HoSuccess<<"  New Ho Success: "<<ueManager->GetHoSuccess()<<std::endl;
+
+  // std::cout<<"Path switch in RNTI: "<<params.rnti<<std::endl;
+
   ueManager->SendUeContextRelease ();
 }
 
@@ -2757,7 +2836,8 @@ LteEnbRrc::DoRecvHandoverRequest (EpcX2SapUser::HandoverRequestParams req)
       m_x2SapProvider->SendHandoverPreparationFailure (res);
       return;
     }
-
+  // New
+  // std::cout<<"Add UE in UE: "<<req.mmeUeS1apId<<"  From Cell "<<req.sourceCellId<<"  to Cell "<<req.targetCellId<<std::endl;
   uint16_t rnti = AddUe (UeManager::HANDOVER_JOINING, CellToComponentCarrierId (req.targetCellId));
   Ptr<UeManager> ueManager = GetUeManager (rnti);
   ueManager->SetSource (req.sourceCellId, req.oldEnbUeX2apId);
@@ -2894,6 +2974,10 @@ LteEnbRrc::DoRecvUeContextRelease (EpcX2SapUser::UeContextReleaseParams params)
   NS_LOG_LOGIC ("newEnbUeX2apId = " << params.newEnbUeX2apId);
 
   uint16_t rnti = params.oldEnbUeX2apId;
+
+  // std::cout<<"  old rnti: "<<params.oldEnbUeX2apId<<"  new rnti: "<<params.newEnbUeX2apId<<std::endl;
+  Ptr<UeManager> temp_UeManager = GetUeManager (rnti);
+  // std::cout<<"Old UE Manager Ho Suceess: "<<temp_UeManager->GetHoSuccess()<<std::endl;
   GetUeManager (rnti)->RecvUeContextRelease (params);
   RemoveUe (rnti);
 }
@@ -3096,6 +3180,12 @@ LteEnbRrc::AddUe (UeManager::State state, uint8_t componentCarrierId)
   const uint16_t cellId = ComponentCarrierToCellId (componentCarrierId);
   NS_LOG_DEBUG (this << " New UE RNTI " << rnti << " cellId " << cellId << " srs CI " << ueManager->GetSrsConfigurationIndex ());
   m_newUeContextTrace (cellId, rnti);
+
+  // New
+  // std::cout<<" New UE RNTI " << rnti << " cellId " << cellId << " State " << ueManager->GetState()<<std::endl;
+  temp_cellId = cellId;
+  m_newUeContextTrace (cellId, rnti);
+
 
   ///////////////////////
   //New Part

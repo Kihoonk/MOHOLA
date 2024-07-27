@@ -65,6 +65,7 @@
 #include <ns3/epc-x2.h>
 #include <ns3/object-map.h>
 #include <ns3/object-factory.h>
+#include <ns3/channel-condition-model.h>//0501
 
 namespace ns3 {
 
@@ -229,7 +230,13 @@ LteHelper::ChannelModelInitialization (void)
 
   m_downlinkChannel = m_channelFactory.Create<SpectrumChannel> ();
   m_uplinkChannel = m_channelFactory.Create<SpectrumChannel> ();
-
+  
+  Ptr<ChannelConditionModel> ccm; //0501
+      if (!m_channelConditionModelType.empty ())
+      {
+        ccm = m_channelConditionModelFactory.Create<ChannelConditionModel> ();
+      }
+ 
   m_downlinkPathlossModel = m_pathlossModelFactory.Create ();
   Ptr<SpectrumPropagationLossModel> dlSplm = m_downlinkPathlossModel->GetObject<SpectrumPropagationLossModel> ();
   if (dlSplm != 0)
@@ -242,9 +249,14 @@ LteHelper::ChannelModelInitialization (void)
       NS_LOG_LOGIC (this << " using a PropagationLossModel in DL");
       Ptr<PropagationLossModel> dlPlm = m_downlinkPathlossModel->GetObject<PropagationLossModel> ();
       NS_ASSERT_MSG (dlPlm != 0, " " << m_downlinkPathlossModel << " is neither PropagationLossModel nor SpectrumPropagationLossModel");
+       if (ccm) //0501
+              {
+                dlPlm->SetAttributeFailSafe ("ChannelConditionModel", PointerValue (ccm));
+              }
       m_downlinkChannel->AddPropagationLossModel (dlPlm);
+    
     }
-
+  
   m_uplinkPathlossModel = m_pathlossModelFactory.Create ();
   Ptr<SpectrumPropagationLossModel> ulSplm = m_uplinkPathlossModel->GetObject<SpectrumPropagationLossModel> ();
   if (ulSplm != 0)
@@ -257,7 +269,12 @@ LteHelper::ChannelModelInitialization (void)
       NS_LOG_LOGIC (this << " using a PropagationLossModel in UL");
       Ptr<PropagationLossModel> ulPlm = m_uplinkPathlossModel->GetObject<PropagationLossModel> ();
       NS_ASSERT_MSG (ulPlm != 0, " " << m_uplinkPathlossModel << " is neither PropagationLossModel nor SpectrumPropagationLossModel");
+       if (ccm) //0501
+              {
+                ulPlm->SetAttributeFailSafe ("ChannelConditionModel", PointerValue (ccm));
+              }
       m_uplinkChannel->AddPropagationLossModel (ulPlm);
+  
     }
   if (!m_fadingModelType.empty ())
     {
@@ -387,6 +404,18 @@ LteHelper::SetPathlossModelType (TypeId type)
   NS_LOG_FUNCTION (this << type);
   m_pathlossModelFactory = ObjectFactory ();
   m_pathlossModelFactory.SetTypeId (type);
+}
+
+void
+LteHelper::SetChannelConditionModelType (std::string type) //0501
+{
+  NS_LOG_FUNCTION (this << type);
+  m_channelConditionModelType = type;
+  if (!type.empty ())
+    {
+      m_channelConditionModelFactory = ObjectFactory ();
+      m_channelConditionModelFactory.SetTypeId (type);
+    }
 }
 
 void 
@@ -2083,6 +2112,21 @@ Ptr<RadioBearerStatsCalculator>
 LteHelper::GetRlcStats (void)
 {
   return m_rlcStats;
+}
+
+// NS-3 SON
+Ptr<RadioBearerStatsCalculator>
+LteHelper::GetRlcStats (Ptr<MyGymEnv> son_server)
+{
+  PutRlcStats(m_rlcStats, son_server);
+  return m_rlcStats;
+}
+
+// NS-3 SON
+void
+LteHelper::PutRlcStats (Ptr<RadioBearerStatsCalculator> m_rlcStats, Ptr<MyGymEnv> son_server)
+{
+  son_server->GetRlcStats(m_rlcStats);
 }
 
 void

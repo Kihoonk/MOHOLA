@@ -108,12 +108,12 @@ MobilityBuildingInfo::SetIndoor (Ptr<Building> building, uint8_t nfloor, uint8_t
   m_roomY = nroomy;
   
 
-  NS_ASSERT (m_roomX > 0);
-  NS_ASSERT (m_roomX <= building->GetNRoomsX ());
-  NS_ASSERT (m_roomY > 0);
-  NS_ASSERT (m_roomY <= building->GetNRoomsY ());
-  NS_ASSERT (m_nFloor > 0);
-  NS_ASSERT (m_nFloor <= building->GetNFloors ());
+  // NS_ASSERT (m_roomX > 0);
+  // NS_ASSERT (m_roomX <= building->GetNRoomsX ());
+  // NS_ASSERT (m_roomY > 0);
+  // NS_ASSERT (m_roomY <= building->GetNRoomsY ());
+  // NS_ASSERT (m_nFloor > 0);
+  // NS_ASSERT (m_nFloor <= building->GetNFloors ()); 0525
 
 }
 

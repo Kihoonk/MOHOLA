@@ -142,6 +142,7 @@ RadioBearerStatsCalculator::UlTxPdu (uint16_t cellId, uint64_t imsi, uint16_t rn
       m_ulTxPackets[p]++;
       m_ulTxData[p] += packetSize;
     }
+    ulThroughput_IMSI[imsi] = m_ulTxData[p]; //NS-3 SON
   m_pendingOutput = true;
 }
 
@@ -157,7 +158,20 @@ RadioBearerStatsCalculator::DlTxPdu (uint16_t cellId, uint64_t imsi, uint16_t rn
       m_dlTxPackets[p]++;
       m_dlTxData[p] += packetSize;
     }
+    dlThroughput_IMSI[imsi] = m_dlTxData[p]; //NS-3 SON
   m_pendingOutput = true;
+}
+
+// NS-3 SON
+std::map<uint64_t, uint32_t>
+RadioBearerStatsCalculator::GetdlThroughput_IMSI(void)
+{
+  return dlThroughput_IMSI;
+}
+std::map<uint64_t, uint32_t>
+RadioBearerStatsCalculator::GetulThroughput_IMSI(void)
+{
+  return ulThroughput_IMSI;
 }
 
 void
@@ -260,7 +274,6 @@ RadioBearerStatsCalculator::ShowResults (void)
           return;
         }
     }
-
   WriteUlResults (ulOutFile);
   WriteDlResults (dlOutFile);
   m_pendingOutput = false;
@@ -274,13 +287,16 @@ RadioBearerStatsCalculator::WriteUlResults (std::ofstream& outFile)
 
   // Get the unique IMSI/LCID pairs list
   std::vector < ImsiLcidPair_t > pairVector;
+
   for (Uint32Map::iterator it = m_ulTxPackets.begin (); it != m_ulTxPackets.end (); ++it)
     {
       if (find (pairVector.begin (), pairVector.end (), (*it).first) == pairVector.end ())
-        {
+        { 
+          // std::cout<<"pairVectorSize"<<pairVector.size()<<std::endl;
           pairVector.push_back ((*it).first);
         }
     }
+
 
   for (Uint32Map::iterator it = m_ulRxPackets.begin (); it != m_ulRxPackets.end (); ++it)
     {
@@ -288,7 +304,9 @@ RadioBearerStatsCalculator::WriteUlResults (std::ofstream& outFile)
         {
           pairVector.push_back ((*it).first);
         }
-    }
+    } 
+
+
 
   Time endTime = m_startTime + m_epochDuration;
   for (std::vector<ImsiLcidPair_t>::iterator it = pairVector.begin (); it != pairVector.end (); ++it)
@@ -299,6 +317,7 @@ RadioBearerStatsCalculator::WriteUlResults (std::ofstream& outFile)
                      "FlowId (imsi " << p.m_imsi << " lcid " << (uint32_t) p.m_lcId << ") is missing");
       LteFlowId_t flowId = flowIdIt->second;
       NS_ASSERT_MSG (flowId.m_lcId == p.m_lcId, "lcid mismatch");
+      // std::cout<<"imsi : " <<p.m_imsi<<" lcid : "<< p.m_lcId << std::endl;
 
       outFile << m_startTime.GetSeconds () << "\t";
       outFile << endTime.GetSeconds () << "\t";
@@ -418,6 +437,7 @@ void
 RadioBearerStatsCalculator::EndEpoch (void)
 {
   NS_LOG_FUNCTION (this);
+  //std::cout<<"****************"<<std::endl;
   ShowResults ();
   ResetResults ();
   m_startTime += m_epochDuration;

@@ -320,7 +320,7 @@ ThreeGppChannelConditionModel::GetChannelCondition (Ptr<const MobilityModel> a,
   uint32_t key = GetKey (a, b);
 
   bool notFound = false; // indicates if the channel condition is not present in the map
-  bool update = false; // indicates if the channel condition has to be updated
+  bool update = true; // indicates if the channel condition has to be updated 0503
 
   // look for the channel condition in m_channelConditionMap
   auto mapItem = m_channelConditionMap.find (key);
@@ -370,20 +370,23 @@ ThreeGppChannelConditionModel::ComputeChannelCondition (Ptr<const MobilityModel>
   double pNlos = ComputePnlos (a, b);
 
   // draw a random value
-  double pRef = m_uniformVar->GetValue ();
 
-  NS_LOG_DEBUG ("pRef " << pRef << " pLos " << pLos << " pNlos " << pNlos);
-
+  // NS_LOG_DEBUG ("pRef " << pRef << " pLos " << pLos << " pNlos " << slos);
+  
   // get the channel condition
-  if (pRef <= pLos)
+  
+  if (pLos == 1)
     {
       // LOS
       cond->SetLosCondition (ChannelCondition::LosConditionValue::LOS);
+      
     }
-  else if (pRef <= pLos + pNlos)
+  // else if (pRef <= pLos + pNlos)
+  else if (pNlos == 1) //0503
     {
       // NLOS
       cond->SetLosCondition (ChannelCondition::LosConditionValue::NLOS);
+    
     }
   else
     {
@@ -391,7 +394,8 @@ ThreeGppChannelConditionModel::ComputeChannelCondition (Ptr<const MobilityModel>
       cond->SetLosCondition (ChannelCondition::LosConditionValue::NLOSv);
     }
 
-  return cond;
+
+  return cond; 
 }
 
 double

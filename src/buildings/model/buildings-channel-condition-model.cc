@@ -117,8 +117,15 @@ BuildingsChannelConditionModel::GetChannelCondition (Ptr<const MobilityModel> a,
 bool
 BuildingsChannelConditionModel::IsLineOfSightBlocked (const ns3::Vector &l1, const ns3::Vector &l2) const
 {
+
+  // std::cout<<"xxxxx"<<std::endl;
   for (BuildingList::Iterator bit = BuildingList::Begin (); bit != BuildingList::End (); ++bit)
     {
+      // std::cout<<"Building Boundary:  "<<(*bit)->GetBoundaries()<<std::endl;
+      
+      // std::cout<<"l1.x: "<<l1.x<<"  l1.y:  "<<l1.y<<"  l1.z:  "<<l1.z<<std::endl;
+      // std::cout<<"l2.x: "<<l2.x<<"  l2.y:  "<<l2.y<<"  l2.z:  "<<l2.z<<std::endl;
+
       if ((*bit)->IsIntersect (l1, l2))
         {
           // The line of sight should be blocked if the line-segment between

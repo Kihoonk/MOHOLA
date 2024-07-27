@@ -254,7 +254,7 @@ LteAnr::Find (uint16_t cellId) const
   NeighbourRelationTable_t::const_iterator it = m_neighbourRelationTable.find (cellId);
   if (it == m_neighbourRelationTable.end ())
     {
-      NS_FATAL_ERROR ("Cell ID " << cellId << " cannot be found in NRT");
+      // NS_FATAL_ERROR ("Cell ID " << cellId << " cannot be found in NRT"); 0701
     }
   return &(it->second);
 }

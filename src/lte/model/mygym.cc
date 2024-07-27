@@ -40,6 +40,14 @@
 
 #include <stdlib.h>
 
+#include <typeinfo>
+
+#include <numeric>
+
+#include <cmath>
+
+#include <fstream>
+
 namespace ns3 {
 
     NS_LOG_COMPONENT_DEFINE("MyGymEnv");
@@ -50,7 +58,7 @@ namespace ns3 {
         NS_LOG_FUNCTION(this);
     }
 
-    MyGymEnv::MyGymEnv(double stepTime, uint32_t N1, uint32_t N2, uint16_t N3) {
+    MyGymEnv::MyGymEnv(double stepTime, uint32_t N1, uint32_t N2, uint16_t N3, uint32_t port) {
         NS_LOG_FUNCTION(this);
         collect = 0;
         collecting_window = 0.05; //50ms
@@ -60,10 +68,12 @@ namespace ns3 {
         m_cellCount = N1;
         m_userCount = N2;
         m_nRBTotal = N3 * collecting_window * 1000;
+        m_port = port;
         m_rbUtil.assign(m_cellCount, 0);
         m_dlThroughput = 0;
         m_cellFrequency.assign(m_cellCount, 0);
         rewards.assign(m_cellCount, 0);
+        rewards_sum.assign(m_cellCount, 0);
         m_dlThroughputVec.assign(m_cellCount, 0);
         m_UesNum.assign(m_cellCount, 0);
         std::vector < uint32_t > dummyVec(29, 0);
@@ -71,6 +81,8 @@ namespace ns3 {
         Simulator::Schedule(Seconds(1), & MyGymEnv::ScheduleNextStateRead, this);
         Simulator::Schedule(Seconds(1 - collecting_window), & MyGymEnv::Start_Collecting, this);
         UserThrouput.clear();
+        Currentaveragerbutil.assign(m_cellCount, 0.0);
+        pre_averagerbutil.assign(m_cellCount, 0.0);
     }
 
     void
@@ -105,6 +117,11 @@ namespace ns3 {
     }
     
     void 
+    MyGymEnv::GetRlcStats(Ptr<RadioBearerStatsCalculator> m_rlcStats) {
+        RlcStats = m_rlcStats;
+    }
+    
+    void 
     MyGymEnv::AddNewNode(uint16_t cellId, Ptr<LteEnbNetDevice> dev){
         m_enbs.insert(std::pair<uint32_t, Ptr<LteEnbNetDevice>> (cellId, dev));
     }
@@ -115,32 +132,16 @@ namespace ns3 {
     
     Ptr < OpenGymSpace >
         MyGymEnv::GetActionSpace() {
-            // Original
-            ///////////////////////////
-            // NS_LOG_FUNCTION(this);
-            // float low = -6.0;
-            // float high = 5.0; // CIO levels 
-            // std::vector < uint32_t > shape = {
-            //     m_cellCount - 1,
-            // }; //number of required relative CIOs
-            // std::string dtype = TypeNameGet < float > ();
-            // Ptr < OpenGymBoxSpace > space = CreateObject < OpenGymBoxSpace > (low, high, shape, dtype);
-
+         
             // Custom
             ///////////////////////////
             uint32_t nodeNum = m_enbs.size();
             std::vector<uint32_t> shape {nodeNum,};
-            std::string dtype = TypeNameGet<int32_t> ();
+            std::vector<uint32_t> shape2 {m_userCount,};
+            std::string dtype = TypeNameGet<float> ();
 
-            // 범위를 -30~30으로 하였는데 이전에 범위를 늘리면 0으로 변경되버렸던 오류가 어떤 부분이였는지 기억x
-            // lte-rrc-header.cc 에서의 qOffsetRange 확인.
-            Ptr<OpenGymBoxSpace> space = CreateObject<OpenGymBoxSpace> (-24, 24, shape, dtype); //todo range change for -30 to 30
+            Ptr<OpenGymBoxSpace> space = CreateObject<OpenGymBoxSpace> (-6, 6, shape, dtype); //todo range change for -30 to 30
             
-            
-            // Ptr<OpenGymBoxSpace> box = CreateObject<OpenGymBoxSpace> (0, 0, shape, dtype); //todo range change for -30 to 30
-            // Ptr<OpenGymDictSpace> space = CreateObject<OpenGymDictSpace> ();
-
-            // space->Add("Offset", box);
 
             NS_LOG_INFO("GetObservationSapce: "<<space);
             ///////////////////////////
@@ -154,73 +155,40 @@ namespace ns3 {
 
             // Custom
             /////////////////////////////
-            float low = 0.0;
-            float high = 1.0;
-            std::vector < uint32_t > shape = { m_cellCount,};
+            float low = -50.0;
+            float high = 50.0;
+            std::vector < uint32_t > shape = {m_cellCount,};
+            // std::vector < uint32_t > shape = { m_cellCount,};
             std::string dtype = TypeNameGet < float > ();
             Ptr < OpenGymBoxSpace > rbUtil = CreateObject < OpenGymBoxSpace > (low, high, shape, dtype);
+            Ptr < OpenGymBoxSpace > FarUes = CreateObject < OpenGymBoxSpace > (low, high, shape, dtype);
+            Ptr < OpenGymBoxSpace > dlPrbusage = CreateObject < OpenGymBoxSpace > (0, 1, shape, dtype);
+            Ptr < OpenGymBoxSpace > AverageVelocity = CreateObject < OpenGymBoxSpace > (0, 15, shape, dtype);
+
+            Ptr < OpenGymBoxSpace > AvgCqi = CreateObject < OpenGymBoxSpace > (0, 15, shape, dtype);
+            Ptr < OpenGymBoxSpace > TotalCqi = CreateObject < OpenGymBoxSpace > (0, 50, shape, dtype);
+
+            Ptr < OpenGymBoxSpace > MLBreward = CreateObject < OpenGymBoxSpace > (low, high, shape, dtype); 
+            Ptr < OpenGymBoxSpace > MROreward = CreateObject < OpenGymBoxSpace > (low, high, shape, dtype);
+
+
+            // shape = {2,};
+            Ptr < OpenGymBoxSpace > Results = CreateObject < OpenGymBoxSpace > (-100000, 100000, shape, dtype);
+
 
             Ptr<OpenGymDictSpace> space = CreateObject<OpenGymDictSpace> ();
             space -> Add("rbUtil", rbUtil);
+            space -> Add("FarUes", FarUes);
+
+            space -> Add("AvgCqi", AvgCqi);
+            space -> Add("TotalCqi",TotalCqi);
+
+            space -> Add("MROreward",MROreward);
+            space -> Add("AverageVelcity",AverageVelocity);
+            space -> Add("MLBreward", MLBreward);
+
             return space;
 
-            // Original
-            /////////////////////////////
-            // Ptr < OpenGymDictSpace > space = CreateObject < OpenGymDictSpace > ();
-
-            // RB Util
-            // float low = 0.0;
-            // float high = 1.0;
-            // std::vector < uint32_t > shape = { m_cellCount,};
-            // std::string dtype = TypeNameGet < float > ();
-            // Ptr < OpenGymBoxSpace > rbUtil = CreateObject < OpenGymBoxSpace > (low, high, shape, dtype);
-            // bool flag = space -> Add("rbUtil", rbUtil);
-            // if (flag) {
-            //     NS_LOG_LOGIC("rbUtil added to dictionary");
-            // } else {
-            //     NS_LOG_LOGIC("Failed to add rbUtil to dictionary");
-            // }
-
-            // DL throughput
-            // low = 0.0;
-            // high = 0.009422 * m_interval * 1000;
-            // Ptr < OpenGymBoxSpace > dlThroughput = CreateObject < OpenGymBoxSpace > (low, high, shape, dtype);
-            // flag = space -> Add("dlThroughput", dlThroughput);
-            // if (flag) {
-            //     NS_LOG_LOGIC("rbUtil added to dictionary");
-            // } else {
-            //     NS_LOG_LOGIC("Failed to add rbUtil to dictionary");
-            // }
-
-            // number of users
-            // std::string dtype1 = TypeNameGet < uint32_t > ();
-            // low = 0.0;
-            // high = m_userCount; //
-            // Ptr < OpenGymBoxSpace > UserCount = CreateObject < OpenGymBoxSpace > (low, high, shape, dtype1);
-            // flag = space -> Add("UserCount", UserCount);
-            // if (flag) {
-            //     NS_LOG_LOGIC("UserCount added to dictionary");
-            // } else {
-            //     NS_LOG_LOGIC("Failed to add UserCount to dictionary");
-            // }
-
-            // MCS ratio
-            // low = 0.0;
-            // high = 1.0;
-            // shape = {  29, }; // LTE has 29 different MCS
-            // Ptr < OpenGymTupleSpace > MCSPen = CreateObject < OpenGymTupleSpace > ();
-            // for (uint8_t idx = 0; idx < m_cellCount; ++idx) {
-            //     Ptr < OpenGymBoxSpace > MCSPenRow = CreateObject < OpenGymBoxSpace > (low, high, shape, dtype);
-            //     flag = MCSPen -> Add(MCSPenRow);
-            // }
-            // flag = space -> Add("MCSPen", MCSPen);
-            // if (flag) {
-            //     NS_LOG_LOGIC("MCSPen added to dictionary");
-            // } else {
-            //     NS_LOG_LOGIC("MCSPen to add rbUtil to dictionary");
-            // }
-            // return space;
-            /////////////////////////////
 
         }
 
@@ -233,204 +201,644 @@ namespace ns3 {
     }
 
     Ptr < OpenGymDataContainer >
-        MyGymEnv::GetObservation() {
-            NS_LOG_FUNCTION(this);
-            // Custom
-            /////////////////////////////
-            calculate_rewards();
+MyGymEnv::GetObservation() {
+    NS_LOG_FUNCTION(this);
+    // Custom
+    /////////////////////////////
+    calculate_rewards();
 
-            Ptr < OpenGymDictContainer > obsContainer = CreateObject < OpenGymDictContainer > ();
-            std::vector < uint32_t > shape = { m_cellCount, };
+    std::cout << "***********************************************************************************************" << std::endl;
+    std::cout << "*************************************  [STEP " << step << "]  *************************************" << std::endl;
+    std::cout << "***********************************************************************************************" << std::endl;
+    step++;
 
-            Ptr < OpenGymBoxContainer < float > > box = CreateObject < OpenGymBoxContainer < float > > (shape);
-            float normalizedRBUtil;
-            for (uint8_t idx = 0; idx < m_cellCount; ++idx) {
-                normalizedRBUtil = float(m_rbUtil.at(idx)) / m_nRBTotal ;
-                box -> AddValue(normalizedRBUtil);
-                //To see normalized RB util
-                std::cout << "eNB "<< (idx+1) << ": " <<"Normalized RB Utilization : "<<(float(m_rbUtil.at(idx))/m_nRBTotal)<<std::endl;
-            }
-            // std::cout<<"**************************************"<<std::endl;
-            obsContainer -> Add("rbUtil", box);
+    Ptr<OpenGymDictContainer> obsContainer = CreateObject<OpenGymDictContainer>();
+    std::vector<uint32_t> shape = {m_cellCount,};
 
-            //report other reward functions 
-            shape = { m_cellCount, };
-            box = CreateObject < OpenGymBoxContainer < float > > (shape);
-            box -> SetData(rewards);
-            obsContainer -> Add("rewards", box);
+    std::vector<float> Far_UEs;
+    std::vector<float> Served_UEs;
+    std::vector<float> normal_RB;
 
-            // 핸드오버 작동하고 있는지 확인하려고 만든 부분 (없어도 상관 X)
-            // 현재 각 eNB에 붙어있는 UE 수를 출력
-            uint32_t enbIdx = 1;
-            for (std::map<uint32_t, Ptr<LteEnbNetDevice>>::iterator iter = m_enbs.begin(); iter != m_enbs.end(); ++iter){
-                std::cout<<"eNB "<<enbIdx<<": "<<iter->second->GetRrc ()->m_numofues<< " UEs " <<std::endl;
-                enbIdx ++;
-            }
-            
-            // UE-eNB distance Test
-            // 현재 step에서 각 eNB별 붙어있는 UE과의 평균 거리 출력 가능, vector로 담아서 observation으로 보내면 DQN에서도 사용 가능
-            // 사용 형태는 아직 생각 필요
-            ////////////////////////
-            for (std::map<uint32_t, Ptr<LteEnbNetDevice>>::iterator iter = m_enbs.begin(); iter != m_enbs.end(); ++iter){
-                uint32_t CellId = iter->first;
-                std::vector<uint64_t> Imsi_List;
-                // eNB 별로 for문을 돌리며 각 for문마다 먼저 eNB의 position 계산
-                double eNB_x = iter->second->GetNode()->GetObject<MobilityModel>()->GetPosition().x;
-                double eNB_y = iter->second->GetNode()->GetObject<MobilityModel>()->GetPosition().y;
-                double eNB_z = iter->second->GetNode()->GetObject<MobilityModel>()->GetPosition().z;
+    Ptr<OpenGymBoxContainer<float>> box = CreateObject<OpenGymBoxContainer<float>>(shape);
+    Ptr<OpenGymBoxContainer<double>> box2 = CreateObject<OpenGymBoxContainer<double>>(shape);
 
-                // eNB의 RRC 계층에 있는 붙어있는 UE들의 정보가 들어있는 m_ueMap을 UeMap이라는 parameter로 가져옴
-                std::map<uint16_t, Ptr<UeManager>> UeMap = iter->second->GetRrc ()->m_ueMap;
-                
-                // UeMap에 대해서 for문을 돌리면서 eNB에 붙어있는 UE들의 IMSI를 Imsi_List에 모음
-                for (std::map<uint16_t, Ptr<UeManager>>::iterator iter2 = UeMap.begin(); iter2 != UeMap.end(); ++iter2){
-                    uint64_t Imsi = iter2->second->GetImsi();
-                    Imsi_List.push_back(Imsi);
-                    // std::cout<<"Cell Id :"<<CellId<<"  "<<"Imsi : "<<Imsi<<std::endl;
-                }
+    std::cout << "******" << std::endl;
 
-                double distance_sum = 0;
+    // ###################### PRB utilization Ui(t)#########################
 
-                // Imsi_List에 대해서 for문을 돌리면서 해당 Imsi를 가지는 UE의 position을 가져와서 eNB와의 distance를 구한다
-                // 구한 distance는 distance_sum에 더한 후 이후 붙어있는 총 UE수와 나누어서 평균 distance를 측정
-                for (uint64_t i=0; i<Imsi_List.size(); i++){
-                    Ptr<LteUeNetDevice> UeNetDevice = m_ues[Imsi_List[i]];
-                    double Ue_x = UeNetDevice->GetNode()->GetObject<MobilityModel>()->GetPosition().x;
-                    double Ue_y = UeNetDevice->GetNode()->GetObject<MobilityModel>()->GetPosition().y;
-                    double Ue_z = UeNetDevice->GetNode()->GetObject<MobilityModel>()->GetPosition().z;
+    std::map<uint8_t, float> enbStepRbUtil;
+    float normalizedRBUtil;
+    for (uint8_t idx = 0; idx < m_cellCount; ++idx) {
+        normalizedRBUtil = float(m_rbUtil.at(idx)) / m_nRBTotal; // 2
 
-                    double distance = sqrt( pow(eNB_x-Ue_x, 2) + pow(eNB_y-Ue_y, 2) + pow(eNB_z-Ue_z, 2) );
-                    distance_sum += distance;
-                    // std::cout<<"eNB : "<<CellId<<"  "<<"UE Poistion : "<<UeNetDevice->GetNode()->GetObject<MobilityModel>()->GetPosition()<<std::endl;
-                }
+        std::cout << "m_nRBTotal : " << m_nRBTotal << std::endl;
+        std::cout << "float(m_rbUtil.at(idx)) : " << float(m_rbUtil.at(idx)) << std::endl;
 
-                // 해당 eNB에서 붙어있는 UE들과의 평균 거리
-                double distance_avg = distance_sum / Imsi_List.size();
-                std::cout<<"eNB "<<CellId<<": "<<"Average Distance : "<<distance_avg<<std::endl;
-            }
-            std::cout<<"**************************************"<<std::endl;
-            ////////////////////////
-            
-            // RLF Counter Test
-            // MRO Case에 따른 Counter 출력을 위한 부분
-            ////////////////////////
-            int Case1_Counter = 0;
-            int Case2_Counter = 0;
-            int Case3_Counter = 0;
-            for (std::map<uint64_t, Ptr<LteUeNetDevice>>::iterator iter = m_ues.begin(); iter != m_ues.end(); ++iter)
-            {
-                int Counter1 = iter->second->GetPhy()->GetTooLateHO_CNT();
-                int Counter2 = iter->second->GetPhy()->GetTooEarlyHO_CNT();
-                int Counter3 = iter->second->GetPhy()->GetWrongCellHO_CNT();
-                Case1_Counter += Counter1;
-                Case2_Counter += Counter2;
-                Case3_Counter += Counter3;
-            }
-            std::cout<<"MRO Case1 Counter: "<<Case1_Counter<<std::endl;
-            std::cout<<"MRO Case2 Counter: "<<Case2_Counter<<std::endl;
-            std::cout<<"MRO Case3 Counter: "<<Case3_Counter<<std::endl;
-            std::cout<<"**************************************"<<std::endl;
-            ////////////////////////
-
-            // RLF Test
-            // MRO 기능을 위한 부분 (현재는 사용 안하고 있어서 주석처리)
-            ////////////////////////
-            // std::map<uint16_t,int> RlfCounter;
-            // for (std::map<uint64_t, Ptr<LteUeNetDevice>>::iterator iter = m_ues.begin(); iter != m_ues.end(); ++iter)
-            // {
-            //     // std::cout<<"Test1 : "<<RlfCounter.size()<<std::endl;
-            //     std::map<uint16_t,int> RlfCounterperUe = iter->second->GetPhy()->GetRlfCounter();
-            //     iter->second->GetPhy()->ClearRlfCounter();
-            // for (auto iter2 =RlfCounterperUe.begin();iter2!=RlfCounterperUe.end();iter2++)
-            // {
-            //     std::cout<<"Test2"<<std::endl;
-            //     if(RlfCounter.count(iter2->first)){
-            //         RlfCounter[iter2->first]+=iter2->second;
-            //     }
-            //     else{
-            //         RlfCounter.insert({iter2->first,iter2->second});
-            //     }
-            //     std::cout<<"Size : "<<RlfCounter.size()<<std::endl;
-            // }
-            // }
-            // for (auto iter3 = RlfCounter.begin(); iter3 != RlfCounter.end(); iter3++)
-            // {
-            //     std::cout<<"CellId : "<<iter3->first<<"   "<<"Counter : "<<iter3->second<<std::endl;
-            // }
-            ////////////////////////
-
-            // NS_LOG_LOGIC("MyGetObservation: " << obsContainer);
-
-            return obsContainer;
-
-            // Original
-            /////////////////////////////
-            // calculate_rewards();
-
-            // Ptr < OpenGymDictContainer > obsContainer = CreateObject < OpenGymDictContainer > ();
-            // std::vector < uint32_t > shape = { m_cellCount, };
-
-            // // nRB Utilization
-            // std::vector < float > normalizedRBUtil;
-            // for (uint8_t idx = 0; idx < m_cellCount; ++idx) {
-            //     normalizedRBUtil.push_back(float(m_rbUtil.at(idx)) / m_nRBTotal);
-            //     //To see normalized RB util
-            //     std::cout<<"Normalized RB Utilization : "<<(float(m_rbUtil.at(idx))/m_nRBTotal)<<std::endl;
-            // }
-            // Ptr < OpenGymBoxContainer < float > > box = CreateObject < OpenGymBoxContainer < float > > (shape);
-            // box -> SetData(normalizedRBUtil);
-            // obsContainer -> Add("rbUtil", box);
-
-            // // phyDlThroughput
-            // box = CreateObject < OpenGymBoxContainer < float > > (shape);
-            // box -> SetData(m_dlThroughputVec);
-            // obsContainer -> Add("dlThroughput", box);
-
-            // // #users
-            // Ptr < OpenGymBoxContainer < uint32_t > > box1 = CreateObject < OpenGymBoxContainer < uint32_t > > (shape);
-            // box1 = CreateObject < OpenGymBoxContainer < uint32_t > > (shape);
-            // box1 -> SetData(m_UesNum);
-            // obsContainer -> Add("UserCount", box1);
-
-            // // MCS Penetration
-            // std::vector < float > dummyVec(29, 0.0);
-            // std::vector < std::vector < float >> normalizedMCSPen(m_cellCount, dummyVec);
-            // for (uint8_t idx = 0; idx < m_cellCount; ++idx) {
-            //     for (uint8_t idx2 = 0; idx2 < 29; ++idx2) {
-            //         if (m_cellFrequency[idx] != 0) {
-            //             normalizedMCSPen[idx][idx2] = float(m_MCSPen[idx][idx2]) / m_cellFrequency[idx];
-            //         } else {
-            //             normalizedMCSPen[idx][idx2] = 0.0;
-            //         }
-            //     }
-            // }
-
-            // shape = { 29, };
-            // Ptr < OpenGymTupleContainer > mcsPenContainer = CreateObject < OpenGymTupleContainer > ();
-            // for (uint8_t idx = 0; idx < m_cellCount; ++idx) {
-            //     box = CreateObject < OpenGymBoxContainer < float > > (shape);
-            //     box -> SetData(normalizedMCSPen.at(idx));
-            //     mcsPenContainer -> Add(box);
-            // }
-
-            // obsContainer -> Add("MCSPen", mcsPenContainer);
-
-            // //report other reward functions 
-            // shape = { 3, };
-            // box = CreateObject < OpenGymBoxContainer < float > > (shape);
-            // box -> SetData(rewards);
-            // obsContainer -> Add("rewards", box);
-
-            // NS_LOG_LOGIC("MyGetObservation: " << obsContainer);
-
-            // return obsContainer;
+        if (step == 1) {
+            TotalPRB.push_back(float(m_rbUtil.at(idx)));
+        } else {
+            TotalPRB[idx] += float(m_rbUtil.at(idx));
         }
+
+        normal_RB.push_back(normalizedRBUtil);
+        box->AddValue(normalizedRBUtil);
+        // To see normalized RB util
+        enbStepRbUtil[idx + 1] = (float(m_rbUtil.at(idx)) / m_nRBTotal);
+        std::cout << "eNB " << (idx + 1) << ": " << "Normalized RB Utilization : " << (float(m_rbUtil.at(idx)) / m_nRBTotal) << std::endl;
+    }
+    obsContainer->Add("rbUtil", box);
+
+    uint32_t enbIdx = 1;
+    for (std::map<uint32_t, Ptr<LteEnbNetDevice>>::iterator iter = m_enbs.begin(); iter != m_enbs.end(); ++iter) {
+        std::cout << "eNB " << enbIdx << ": " << iter->second->GetRrc()->m_numofues << " UEs " << std::endl;
+        enbIdx++;
+    }
+
+    // ###################### Edge ratio Ei(t) (far_ue) #########################
+
+    std::map<uint16_t, double> distanceMap;
+    double TotalFarUes = 0;
+
+for (std::map<uint32_t, Ptr<LteEnbNetDevice>>::iterator iter = m_enbs.begin(); iter != m_enbs.end(); ++iter) {
+   // double cellid = iter->first;
+    std::vector<uint64_t> Imsi_List;
+    double eNB_x = iter->second->GetNode()->GetObject<MobilityModel>()->GetPosition().x;
+    double eNB_y = iter->second->GetNode()->GetObject<MobilityModel>()->GetPosition().y;
+    double eNB_z = iter->second->GetNode()->GetObject<MobilityModel>()->GetPosition().z;
+
+    std::map<uint16_t, Ptr<UeManager>> UeMap = iter->second->GetRrc()->m_ueMap;
+
+    for (std::map<uint16_t, Ptr<UeManager>>::iterator iter2 = UeMap.begin(); iter2 != UeMap.end(); ++iter2) {
+        uint64_t Imsi = iter2->second->GetImsi();
+        Imsi_List.push_back(Imsi);
+    }
+
+    double distance_sum = 0;
+    double far_distance_ues = 0;
+    for (uint64_t i = 0; i < Imsi_List.size(); i++) {
+        Ptr<LteUeNetDevice> UeNetDevice = m_ues[Imsi_List[i]];
+        double Ue_x = UeNetDevice->GetNode()->GetObject<MobilityModel>()->GetPosition().x;
+        double Ue_y = UeNetDevice->GetNode()->GetObject<MobilityModel>()->GetPosition().y;
+        double Ue_z = UeNetDevice->GetNode()->GetObject<MobilityModel>()->GetPosition().z;
+
+        double distance = sqrt(pow(eNB_x - Ue_x, 2) + pow(eNB_y - Ue_y, 2) + pow(eNB_z - Ue_z, 2));
+        distance_sum += distance;
+
+        if (distance >= 70) {
+            far_distance_ues += 1;
+            TotalFarUes += 1;
+        }
+        // else if ((distance >= 30) & (cellid >= 4)) {
+        //     far_distance_ues += 1;
+        //     TotalFarUes += 1;
+        // }
+
+        distanceMap[Imsi_List[i]] = distance;
+    }
+
+    float ratio_far_ues;
+    float ratio_ues;
+    float served_ues;
+
+    if (Imsi_List.size() == 0) {
+        ratio_far_ues = 0;
+        ratio_ues = 0;
+        served_ues = 0;
+    } else {
+        ratio_far_ues = static_cast<float>(far_distance_ues) / static_cast<float>(Imsi_List.size());
+        ratio_ues = static_cast<float>(Imsi_List.size()) / static_cast<float>(m_userCount);
+        served_ues = static_cast<float>(Imsi_List.size());
+    }
+    ratio_ues = round(ratio_ues * 100) / 100;
+    //ratio_far_ues = round(ratio_far_ues * 100) / 100;
+    std::cout << "ratio of far_ues : " << ratio_far_ues << std::endl;
+    Served_UEs.push_back(served_ues);
+    Far_UEs.push_back(ratio_far_ues);
+}
+    // operation controller state2 Edge ratio Ei(t)
+    box = CreateObject<OpenGymBoxContainer<float>>(shape);
+    box->SetData(Far_UEs);
+    obsContainer->Add("FarUes", box);
+
+    // ###################### Paper MDP state 1  Load state ρi(t) ) #########################
+
+    std::map<uint32_t, double> enbMLBindicator;
+    std::map<uint32_t, double> pre_enbMLBindicator;
+    for (std::map<uint32_t, Ptr<LteEnbNetDevice>>::iterator iter = m_enbs.begin(); iter != m_enbs.end(); ++iter) {
+        uint32_t CellId = iter->first;
+        if (step == 0)
+            pre_enbMLBindicator[CellId] = 0;
+        else
+            pre_enbMLBindicator[CellId] = enbMLBindicator[CellId];
+
+        double MLBindicator = 0;
+
+        if (enbStepRbUtil[CellId] < 0.3) {
+            if (Far_UEs[CellId] < 0.3)
+                MLBindicator = 0;
+            else if (0.3 <= Far_UEs[CellId] && Far_UEs[CellId] < 0.6)
+                MLBindicator = 1;
+            else if (0.6 <= Far_UEs[CellId])
+                MLBindicator = 2;
+        } else if (0.3 <= enbStepRbUtil[CellId] && enbStepRbUtil[CellId] < 0.6) {
+            if (Far_UEs[CellId] < 0.3)
+                MLBindicator = 3;
+            else if (0.3 <= Far_UEs[CellId] && Far_UEs[CellId] < 0.6)
+                MLBindicator = 4;
+            else if (0.6 <= Far_UEs[CellId])
+                MLBindicator = 5;
+        } else if (0.6 <= enbStepRbUtil[CellId]) {
+            if (Far_UEs[CellId] < 0.3)
+                MLBindicator = 6;
+            else if (0.3 <= Far_UEs[CellId] && Far_UEs[CellId] < 0.6)
+                MLBindicator = 7;
+            else if (0.6 <= Far_UEs[CellId])
+                MLBindicator = 8;
+        }
+
+        enbMLBindicator[CellId] = MLBindicator;
+        std::cout << "MLBindicator " << CellId << ": " << MLBindicator << std::endl;
+        box2->AddValue(MLBindicator);
+    }
+
+    obsContainer->Add("enbMLBindicator", box2);
+
+    // ###################### Paper MDP state 2 Load comparasion indicator Li(t)) #########################
+    box2 = CreateObject<OpenGymBoxContainer<double>>(shape);
+
+    std::map<uint32_t, double> enbneigborMLBindicator;
+    for (std::map<uint32_t, Ptr<LteEnbNetDevice>>::iterator iter = m_enbs.begin(); iter != m_enbs.end(); ++iter) {
+        uint32_t CellId = iter->first;
+
+        double neigborMLBindicator = 0;
+        if (CellId == 0) {
+            if (enbMLBindicator[5] < enbMLBindicator[CellId] && enbMLBindicator[6] < enbMLBindicator[CellId])
+                neigborMLBindicator = 0;
+            else
+                neigborMLBindicator = 1;
+        } else if (CellId == 1) {
+            if (enbMLBindicator[9] < enbMLBindicator[CellId] && enbMLBindicator[10] < enbMLBindicator[CellId])
+                neigborMLBindicator = 0;
+            else
+                neigborMLBindicator = 1;
+        } else if (CellId == 2) {
+            if (enbMLBindicator[5] < enbMLBindicator[CellId] && enbMLBindicator[6] < enbMLBindicator[CellId] && enbMLBindicator[7] < enbMLBindicator[CellId] &&
+                enbMLBindicator[8] < enbMLBindicator[CellId] && enbMLBindicator[9] < enbMLBindicator[CellId] && enbMLBindicator[10] < enbMLBindicator[CellId] &&
+                enbMLBindicator[11] < enbMLBindicator[CellId] && enbMLBindicator[12] < enbMLBindicator[CellId])
+                neigborMLBindicator = 0;
+            else
+                neigborMLBindicator = 1;
+        } else if (CellId == 3) {
+            if (enbMLBindicator[11] < enbMLBindicator[CellId] && enbMLBindicator[12] < enbMLBindicator[CellId])
+                neigborMLBindicator = 0;
+            else
+                neigborMLBindicator = 1;
+        } else if (CellId == 4) {
+            if (enbMLBindicator[7] < enbMLBindicator[CellId] && enbMLBindicator[8] < enbMLBindicator[CellId])
+                neigborMLBindicator = 0;
+            else
+                neigborMLBindicator = 1;
+        } else if (CellId == 5) {
+            if (enbMLBindicator[6] < enbMLBindicator[CellId] && enbMLBindicator[2] < enbMLBindicator[CellId] &&
+                enbMLBindicator[9] < enbMLBindicator[CellId] && enbMLBindicator[0] < enbMLBindicator[CellId])
+                neigborMLBindicator = 0;
+            else
+                neigborMLBindicator = 1;
+        } else if (CellId == 6) {
+            if (enbMLBindicator[5] < enbMLBindicator[CellId] && enbMLBindicator[2] < enbMLBindicator[CellId] &&
+                enbMLBindicator[0] < enbMLBindicator[CellId] && enbMLBindicator[11] < enbMLBindicator[CellId])
+                neigborMLBindicator = 0;
+            else
+                neigborMLBindicator = 1;
+        } else if (CellId == 7) {
+            if (enbMLBindicator[8] < enbMLBindicator[CellId] && enbMLBindicator[2] < enbMLBindicator[CellId] &&
+                enbMLBindicator[10] < enbMLBindicator[CellId] && enbMLBindicator[4] < enbMLBindicator[CellId])
+                neigborMLBindicator = 0;
+            else
+                neigborMLBindicator = 1;
+        } else if (CellId == 8) {
+            if (enbMLBindicator[7] < enbMLBindicator[CellId] && enbMLBindicator[2] < enbMLBindicator[CellId] &&
+                enbMLBindicator[12] < enbMLBindicator[CellId] && enbMLBindicator[4] < enbMLBindicator[CellId])
+                neigborMLBindicator = 0;
+            else
+                neigborMLBindicator = 1;
+        } else if (CellId == 9) {
+            if (enbMLBindicator[10] < enbMLBindicator[CellId] && enbMLBindicator[1] < enbMLBindicator[CellId] &&
+                enbMLBindicator[5] < enbMLBindicator[CellId] && enbMLBindicator[2] < enbMLBindicator[CellId])
+                neigborMLBindicator = 0;
+            else
+                neigborMLBindicator = 1;
+        } else if (CellId == 10) {
+            if (enbMLBindicator[9] < enbMLBindicator[CellId] && enbMLBindicator[1] < enbMLBindicator[CellId] &&
+                enbMLBindicator[2] < enbMLBindicator[CellId] && enbMLBindicator[7] < enbMLBindicator[CellId])
+                neigborMLBindicator = 0;
+            else
+                neigborMLBindicator = 1;
+        } else if (CellId == 11) {
+            if (enbMLBindicator[12] < enbMLBindicator[CellId] && enbMLBindicator[3] < enbMLBindicator[CellId] &&
+                enbMLBindicator[2] < enbMLBindicator[CellId] && enbMLBindicator[6] < enbMLBindicator[CellId])
+                neigborMLBindicator = 0;
+            else
+                neigborMLBindicator = 1;
+        } else if (CellId == 12) {
+            if (enbMLBindicator[11] < enbMLBindicator[CellId] && enbMLBindicator[3] < enbMLBindicator[CellId] &&
+                enbMLBindicator[2] < enbMLBindicator[CellId] && enbMLBindicator[8] < enbMLBindicator[CellId])
+                neigborMLBindicator = 0;
+            else
+                neigborMLBindicator = 1;
+        }
+        enbneigborMLBindicator[CellId] = neigborMLBindicator;
+        std::cout << "neigborMLBindicator " << CellId << " : " << neigborMLBindicator << std::endl; // paper state 2
+        box2->AddValue(neigborMLBindicator);
+    }
+    obsContainer->Add("enbneigborMLBindicator", box2);
+
+    // ###################### Paper MDP state 3 RSRP indicator Ri(t) #########################
+
+    // edge UEs (far_UEs), Served UEs
+
+    std::vector<uint16_t> RSRPIndicator;
+
+    double TotalFarUesRatio = double(TotalFarUes / m_userCount);
+    std::cout << "Total edge Ues Ratio : " << TotalFarUesRatio << std::endl;
+
+    // For Step RLF, PP in eNB
+    std::map<uint32_t, int> eNBStepRlf;
+    std::map<uint32_t, int> eNBStepPp;
+
+    std::map<uint32_t, float> eNBStepMroReward;
+    float TotalMroReward = 0;
+    box2 = CreateObject<OpenGymBoxContainer<double>>(shape);
+
+    std::map<uint32_t, int> stepearly;
+    std::map<uint32_t, int> steplate;
+    std::map<uint32_t, int> stepwrong;
+    int stepearly1;
+    int steplate1;
+    int stepwrong1;
+    for (std::map<uint32_t, Ptr<LteEnbNetDevice>>::iterator iter = m_enbs.begin(); iter != m_enbs.end(); ++iter) {
+        std::vector<uint64_t> Imsi_List;
+        uint32_t CellId = iter->first;
+        std::cout << "CellId : " << CellId << std::endl;
+        std::map<uint16_t, Ptr<UeManager>> UeMap = iter->second->GetRrc()->m_ueMap;
+
+        for (std::map<uint16_t, Ptr<UeManager>>::iterator iter2 = UeMap.begin(); iter2 != UeMap.end(); ++iter2) {
+            uint64_t Imsi = iter2->second->GetImsi();
+            std::cout << "Imsi : " << Imsi << std::endl;
+            Imsi_List.push_back(Imsi);
+        }
+
+        int stepRlf = 0;
+        int stepPp = 0;
+        float stepReward = 0;
+        uint16_t cellrsrpindicatr = 0;
+        stepearly1 = 0;
+        steplate1 = 0;
+        stepwrong1 = 0;
+
+        for (uint64_t i = 0; i < Imsi_List.size(); i++) {
+            Ptr<LteUeNetDevice> UeNetDevice = m_ues[Imsi_List[i]];
+            std::cout << "imsi size" << Imsi_List.size() << std::endl;
+            // Step RLF
+            int Counter1 = UeNetDevice->GetPhy()->GetTooLateHO_CNT();
+            int Counter2 = UeNetDevice->GetPhy()->GetTooEarlyHO_CNT();
+            int Counter3 = UeNetDevice->GetPhy()->GetWrongCellHO_CNT();
+            int Counter5 = UeNetDevice->GetPhy()->GetRSRPIndicator();
+
+            stepRlf = stepRlf + (Counter1 + Counter2 + Counter3);
+
+            if (Counter5 == 0)
+                cellrsrpindicatr += 1;
+            // Step PP
+            int Counter4 = UeNetDevice->GetPhy()->GetPingPong_CNT();
+
+            stepPp = stepPp + Counter4;
+
+            stepearly1 += Counter2;
+            steplate1 += Counter1;
+            stepwrong1 += Counter3;
+            stepReward = stepReward - (0.3 * Counter4 + 0.1 * Counter3 + 0.2 * Counter2 + 0.5 * Counter1);
+        }
+
+        eNBStepRlf[CellId] = stepRlf;
+        eNBStepPp[CellId] = stepPp;
+        eNBStepMroReward[CellId] = stepReward;
+        stepearly[CellId] = stepearly1;
+        steplate[CellId] = steplate1;
+        stepwrong[CellId] = stepwrong1;
+
+        TotalMroReward = TotalMroReward - stepReward;
+        if (cellrsrpindicatr >= 1)
+            cellrsrpindicatr = 1;
+        RSRPIndicator.push_back(cellrsrpindicatr);
+        box2->AddValue(cellrsrpindicatr);
+    }
+
+    obsContainer->Add("RSRPIndicator", box2);
+
+    // ###################### Paper MDP state 4 Average CQI indicator Ci(t) #########################
+
+    box = CreateObject<OpenGymBoxContainer<float>>(shape);
+
+    std::vector<float> TotalCqi(m_cellCount);
+    std::vector<float> AverageCqi(m_cellCount);
+    std::vector<float> CQIcompareidicator(m_cellCount);
+
+    float CqiSum = 0;
+
+    std::map<uint32_t, float> enbStepCqi;
+    for (std::map<uint32_t, Ptr<LteEnbNetDevice>>::iterator iter = m_enbs.begin(); iter != m_enbs.end(); ++iter) {
+        uint32_t CellId = iter->first;
+        std::vector<uint64_t> Imsi_List;
+
+        std::map<uint16_t, Ptr<UeManager>> UeMap = iter->second->GetRrc()->m_ueMap;
+
+        for (std::map<uint16_t, Ptr<UeManager>>::iterator iter2 = UeMap.begin(); iter2 != UeMap.end(); ++iter2) {
+            uint64_t Imsi = iter2->second->GetImsi();
+            Imsi_List.push_back(Imsi);
+        }
+
+        float AvgCqi = 0;
+        for (uint64_t i = 0; i < Imsi_List.size(); i++) {
+            float UeCqi = float(m_ues[Imsi_List[i]]->GetPhy()->AvgCqi);
+            AvgCqi += UeCqi;
+        }
+
+        if (Imsi_List.size() == 0) {
+            AvgCqi = 0;
+            CqiSum = 0;
+        } else {
+            CqiSum += AvgCqi;
+            AvgCqi = AvgCqi / Imsi_List.size();
+        }
+
+        AvgCqi = round(AvgCqi * 100) / 100;
+
+        enbStepCqi[CellId] = AvgCqi;
+
+        box->AddValue(AvgCqi);
+    }
+
+    obsContainer->Add("AvgCqi", box);
+
+    box = CreateObject<OpenGymBoxContainer<float>>(shape);
+
+    CqiSum = CqiSum / m_ues.size();
+    for (uint8_t idx = 0; idx < m_cellCount; ++idx) {
+        TotalCqi[idx] = CqiSum;
+    }
+    box->SetData(TotalCqi);
+    obsContainer->Add("TotalCqi", box);
+
+    box2 = CreateObject<OpenGymBoxContainer<double>>(shape);
+
+    for (std::map<uint32_t, Ptr<LteEnbNetDevice>>::iterator iter = m_enbs.begin(); iter != m_enbs.end(); ++iter) {
+        uint32_t CellId = iter->first;
+
+        double CQIidicator = 0;
+        if (CellId == 0) {
+            CQIidicator = (AverageCqi[5] + AverageCqi[6]) / 2;
+        } else if (CellId == 1) {
+            CQIidicator = (AverageCqi[9] + AverageCqi[10]) / 2;
+        } else if (CellId == 2) {
+            CQIidicator = (AverageCqi[5] + AverageCqi[6] + AverageCqi[7] + AverageCqi[8] + AverageCqi[9] + AverageCqi[10] + AverageCqi[11] + AverageCqi[12]) / 8;
+        } else if (CellId == 3) {
+            CQIidicator = (AverageCqi[11] + AverageCqi[12]) / 2;
+        } else if (CellId == 4) {
+            CQIidicator = (AverageCqi[7] + AverageCqi[8]) / 2;
+        } else if (CellId == 5) {
+            CQIidicator = (AverageCqi[6] + AverageCqi[2] + AverageCqi[9] + AverageCqi[0]) / 4;
+        } else if (CellId == 6) {
+            CQIidicator = (AverageCqi[5] + AverageCqi[2] + AverageCqi[0] + AverageCqi[11]) / 4;
+        } else if (CellId == 7) {
+            CQIidicator = (AverageCqi[8] + AverageCqi[2] + AverageCqi[10] + AverageCqi[4]) / 4;
+        } else if (CellId == 8) {
+            CQIidicator = (AverageCqi[7] + AverageCqi[2] + AverageCqi[12] + AverageCqi[4]) / 4;
+        } else if (CellId == 9) {
+            CQIidicator = (AverageCqi[10] + AverageCqi[1] + AverageCqi[5] + AverageCqi[2]) / 4;
+        } else if (CellId == 10) {
+            CQIidicator = (AverageCqi[9] + AverageCqi[1] + AverageCqi[2] + AverageCqi[7]) / 4;
+        } else if (CellId == 11) {
+            CQIidicator = (AverageCqi[12] + AverageCqi[3] + AverageCqi[2] + AverageCqi[6]) / 4;
+        } else if (CellId == 12) {
+            CQIidicator = (AverageCqi[11] + AverageCqi[3] + AverageCqi[2] + AverageCqi[8]) / 4;
+        }
+
+        if (CQIidicator <= AverageCqi[CellId])
+            CQIcompareidicator[CellId] = 0;
+        else
+            CQIcompareidicator[CellId] = 1;
+
+        box2->AddValue(CQIcompareidicator[CellId]);
+    }
+    obsContainer->Add("CQIcompareidicator", box2);
+
+    // ###################### Paper reward1 (rHO) #########################
+
+    int Case1_Counter = 0;
+    int Case2_Counter = 0;
+    int Case3_Counter = 0;
+    int Case4_Counter = 0;
+
+    double ThroughputSum = 0;
+    int CurrentRlfNum = 0;
+    int CurrentPpNum = 0;
+
+    for (std::map<uint64_t, Ptr<LteUeNetDevice>>::iterator iter = m_ues.begin(); iter != m_ues.end(); ++iter) {
+        // Step RLF
+        int Counter1 = iter->second->GetPhy()->GetTooLateHO_CNT();
+        int Counter2 = iter->second->GetPhy()->GetTooEarlyHO_CNT();
+        int Counter3 = iter->second->GetPhy()->GetWrongCellHO_CNT();
+
+        // Step PP
+        int Counter4 = iter->second->GetPhy()->GetPingPong_CNT();//kihoon
+
+        uint32_t dlThroughput = dlThroughput_IMSI[iter->first];
+
+        RLF_Counter += Counter1 + Counter2 + Counter3;
+        Pingpong_Counter += Counter4;
+
+        iter->second->GetPhy()->ClearTooLateHO_CNT();
+        iter->second->GetPhy()->ClearTooEarlyHO_CNT();
+        iter->second->GetPhy()->ClearWrongCellHO_CNT();
+        iter->second->GetPhy()->ClearPingPong_CNT();
+
+        Case1_Counter += Counter1;
+        Case2_Counter += Counter2;
+        Case3_Counter += Counter3;
+        Case4_Counter += Counter4;
+
+        double UeThroughput = (double(dlThroughput) * 8.0 / 1000000.0);
+
+        ThroughputSum = ThroughputSum + UeThroughput;
+        CurrentRlfNum = CurrentRlfNum + Counter1 + Counter2 + Counter3;
+        CurrentPpNum = CurrentPpNum + Counter4;
+    }
+
+    double RlfRate;
+    double PpRate;
+    if (CurrentRlfNum == 0) {
+        RlfRate = 0;
+    } else {
+        RlfRate = double(CurrentRlfNum) / 10;
+    }
+    if (CurrentPpNum == 0) {
+        PpRate = 0;
+    } else {
+        PpRate = double(CurrentPpNum) / 10;
+    }
+
+    double AverageThroughput = ThroughputSum / m_userCount;
+
+    double Reward = -(0.4 * RlfRate + 0.2 * PpRate);
+
+    Reward *= 10000;
+    Reward = round(Reward);
+    Reward /= 10000;
+
+    std::cout << "RLF Rate: " << RlfRate << "  PingPong Rate: " << PpRate << "  Average Throughput: " << AverageThroughput << std::endl;
+    std::cout << "Reward: " << Reward << std::endl;
+
+    box = CreateObject<OpenGymBoxContainer<float>>(shape);
+    box->AddValue(Reward);
+    obsContainer->Add("Reward", box);
+    box2 = CreateObject<OpenGymBoxContainer<double>>(shape);
+    std::vector<double> MroRewardVector;
+    for (std::map<uint32_t, float>::iterator iter = eNBStepMroReward.begin(); iter != eNBStepMroReward.end(); ++iter) {
+        double MroReward = iter->second;
+        MroRewardVector.push_back(MroReward);
+    }
+    box2->SetData(MroRewardVector);
+    obsContainer->Add("MROreward", box2);
+
+    std::cout << "MRO Case1 Counter: " << Case1_Counter << std::endl;
+    std::cout << "MRO Case2 Counter: " << Case2_Counter << std::endl;
+    std::cout << "MRO Case3 Counter: " << Case3_Counter << std::endl;
+    std::cout << "pingpong Counter: " << Case4_Counter << std::endl;//kihoon
+    std::cout << "Total MRO Case: " << RLF_Counter << std::endl;
+    std::cout << "Total pingpong Case: " << Pingpong_Counter << std::endl;
+    std::cout << "**************************************" << std::endl;
+
+    // ###################### Paper reward2 (rLoad) #########################
+
+    Ptr<OpenGymBoxContainer<double>> box3 = CreateObject<OpenGymBoxContainer<double>>(shape);
+
+    for (std::map<uint32_t, Ptr<LteEnbNetDevice>>::iterator iter = m_enbs.begin(); iter != m_enbs.end(); ++iter) {
+        uint32_t CellId = iter->first;
+        CellId = CellId - 1;
+        double MLBreward = 0;
+        double varianceSum = 0;
+        double TotalvarianceSum = 0;
+        double stdDev = 0;
+        std::vector<float> selectedValues;
+        std::vector<float> TotalValues;
+
+        pre_averagerbutil[CellId] = Currentaveragerbutil[CellId];
+
+        if (CellId == 0) {
+            selectedValues = {enbStepRbUtil[CellId], enbStepRbUtil[5], enbStepRbUtil[6]};
+        } else if (CellId == 1) {
+            selectedValues = {enbStepRbUtil[CellId], enbStepRbUtil[9], enbStepRbUtil[10]};
+        } else if (CellId == 2) {
+            selectedValues = {enbStepRbUtil[CellId], enbStepRbUtil[5], enbStepRbUtil[6], enbStepRbUtil[7], enbStepRbUtil[8], enbStepRbUtil[9], enbStepRbUtil[10], enbStepRbUtil[11], enbStepRbUtil[12]};
+        } else if (CellId == 3) {
+            selectedValues = {enbStepRbUtil[CellId], enbStepRbUtil[11], enbStepRbUtil[12]};
+        } else if (CellId == 4) {
+            selectedValues = {enbStepRbUtil[CellId], enbStepRbUtil[7], enbStepRbUtil[8]};
+        } else if (CellId == 5) {
+            selectedValues = {enbStepRbUtil[CellId], enbStepRbUtil[6], enbStepRbUtil[2], enbStepRbUtil[9], enbStepRbUtil[0]};
+        } else if (CellId == 6) {
+            selectedValues = {enbStepRbUtil[CellId], enbStepRbUtil[5], enbStepRbUtil[2], enbStepRbUtil[0], enbStepRbUtil[11]};
+        } else if (CellId == 7) {
+            selectedValues = {enbStepRbUtil[CellId], enbStepRbUtil[8], enbStepRbUtil[2], enbStepRbUtil[10], enbStepRbUtil[4]};
+        } else if (CellId == 8) {
+            selectedValues = {enbStepRbUtil[CellId], enbStepRbUtil[7], enbStepRbUtil[2], enbStepRbUtil[12], enbStepRbUtil[4]};
+        } else if (CellId == 9) {
+            selectedValues = {enbStepRbUtil[CellId], enbStepRbUtil[10], enbStepRbUtil[1], enbStepRbUtil[5], enbStepRbUtil[2]};
+        } else if (CellId == 10) {
+            selectedValues = {enbStepRbUtil[CellId], enbStepRbUtil[9], enbStepRbUtil[1], enbStepRbUtil[2], enbStepRbUtil[7]};
+        } else if (CellId == 11) {
+            selectedValues = {enbStepRbUtil[CellId], enbStepRbUtil[12], enbStepRbUtil[3], enbStepRbUtil[2], enbStepRbUtil[6]};
+        } else if (CellId == 12) {
+            selectedValues = {enbStepRbUtil[CellId], enbStepRbUtil[11], enbStepRbUtil[3], enbStepRbUtil[2], enbStepRbUtil[8]};
+        }
+        double sum = std::accumulate(selectedValues.begin(), selectedValues.end(), 0.0);
+        double mean = sum / selectedValues.size();
+
+        for (double value : selectedValues) {
+            varianceSum += std::pow(value - mean, 2);
+        }
+        stdDev = std::sqrt(varianceSum / selectedValues.size());
+
+        if (CellId == 12) {
+            TotalValues = {enbStepRbUtil[CellId], enbStepRbUtil[0], enbStepRbUtil[1], enbStepRbUtil[2], enbStepRbUtil[3], enbStepRbUtil[4], enbStepRbUtil[5], enbStepRbUtil[6], enbStepRbUtil[7], enbStepRbUtil[8], enbStepRbUtil[9], enbStepRbUtil[10], enbStepRbUtil[11]};
+            double totalsum = std::accumulate(TotalValues.begin(), TotalValues.end(), 0.0);
+            double totlamean = totalsum / TotalValues.size();
+
+            for (double Totalvalue : TotalValues) {
+                TotalvarianceSum += std::pow(Totalvalue - totlamean, 2);
+            }
+        }
+
+        Currentaveragerbutil[CellId] = stdDev;
+
+        MLBreward = pre_averagerbutil[CellId] - Currentaveragerbutil[CellId];
+
+        box3->AddValue(MLBreward);
+        std::cout << "MLBreward : " << MLBreward << std::endl;
+    }
+    obsContainer->Add("MLBreward", box3);
+
+    // ###################### Paper operation controller state 1 (Average velocity Vi(t)) #########################
+
+    box = CreateObject<OpenGymBoxContainer<float>>(shape);
+
+    for (std::map<uint32_t, Ptr<LteEnbNetDevice>>::iterator iter = m_enbs.begin(); iter != m_enbs.end(); ++iter) {
+        std::vector<uint64_t> Imsi_List;
+
+        std::map<uint16_t, Ptr<UeManager>> UeMap = iter->second->GetRrc()->m_ueMap;
+
+        for (std::map<uint16_t, Ptr<UeManager>>::iterator iter2 = UeMap.begin(); iter2 != UeMap.end(); ++iter2) {
+            uint64_t Imsi = iter2->second->GetImsi();
+            Imsi_List.push_back(Imsi);
+        }
+
+        double SumVelocity = 0.0;
+        double NumofUe = Imsi_List.size();
+        for (uint64_t i = 0; i < Imsi_List.size(); i++) {
+            Ptr<LteUeNetDevice> UeNetDevice = m_ues[Imsi_List[i]];
+
+            double velocity_x = UeNetDevice->GetNode()->GetObject<MobilityModel>()->GetVelocity().x;
+            double velocity_y = UeNetDevice->GetNode()->GetObject<MobilityModel>()->GetVelocity().y;
+            double velocity_z = UeNetDevice->GetNode()->GetObject<MobilityModel>()->GetVelocity().z;
+
+            double velocity = sqrt(pow(velocity_x, 2) + pow(velocity_y, 2) + pow(velocity_z, 2));
+
+            SumVelocity = SumVelocity + velocity;
+        }
+
+        double AverageVelocity;
+        if (Imsi_List.size() == 0) {
+            AverageVelocity = 0;
+        } else {
+            AverageVelocity = SumVelocity / NumofUe;
+        }
+
+        std::cout << "Cell " << iter->first << "  Average Velocity: " << AverageVelocity << std::endl;
+
+        box->AddValue(AverageVelocity);
+    }
+    obsContainer->Add("AverageVelocity", box);
+
+    return obsContainer;
+}
 
     void
     MyGymEnv::resetObs() {
         NS_LOG_FUNCTION(this);
         m_rbUtil.assign(m_cellCount, 0);
         rewards.assign(m_cellCount, 0);
+        rewards_sum.assign(m_cellCount, 0);
         m_cellFrequency.assign(m_cellCount, 0);
         m_dlThroughputVec.assign(m_cellCount, 0);
         m_dlThroughput = 0;
@@ -446,14 +854,15 @@ namespace ns3 {
     void
     MyGymEnv::calculate_rewards() {
         std::map < uint16_t, std::map < uint16_t, float >> ::iterator itr;
+       
 
         std::map < uint16_t, float > ::iterator ptr;
         int Blocked_Users_num = 0;
         double min_thro = 100;
-	m_UesNum.assign(m_cellCount, 0);
-
+	    m_UesNum.assign(m_cellCount, 0);
+        float sum_reward=0 ;
         for (itr = UserThrouput.begin(); itr != UserThrouput.end(); itr++) {
-
+        // std::cout<<"XXXXX"<<std::endl;
             float all = 0;
             std::map < uint16_t, float > tempmap = itr -> second;
             m_UesNum.at(itr -> first - 1) = tempmap.size();
@@ -461,6 +870,7 @@ namespace ns3 {
             // std::cout<<"UE Num : "<<m_UesNum.at(itr->first-1)<<std::endl;
 
             NS_LOG_LOGIC("Cell: " << itr -> first << " total throuput: " << m_dlThroughputVec.at(itr -> first - 1));
+            std::cout<<"Cell: " << itr -> first << " total throuput: " << m_dlThroughputVec.at(itr -> first - 1)<<std::endl;
             NS_LOG_LOGIC("#users : " << tempmap.size());
             for (ptr = itr -> second.begin(); ptr != itr -> second.end(); ptr++) {
                 if (ptr -> second < block_Thr)
@@ -471,43 +881,17 @@ namespace ns3 {
                 all = all + ptr -> second;
             }
 
-            // New Part
-            // Parameter to use as reward
-            float normalized_throughput = 0;
-            normalized_throughput = (all/m_UesNum.at(itr->first-1))*100;
             NS_LOG_LOGIC("using sum Cell: " << itr -> first << " total throuput: " << all);
-            rewards.at(itr -> first - 1) = normalized_throughput;
-            // std::cout<<"Cell ID : "<<itr->first<<"  "<<"Total Throughput : "<<normalized_throughput<<std::endl;
+            rewards.at(itr -> first - 1) = all;
+            sum_reward += all;
+            // rewards.at(itr -> first - 1) = normalized_throughput;
+            // std::cout<<"Cell ID : "<<itr->first<<"  "<<"all : "<<all<<std::endl;
+            // std::cout<<"Cell ID : "<<itr->first<<"  "<<"Total Throughput : "<<sum_reward<<std::endl;
 
         }
-
-        // NS_LOG_LOGIC("Number of users in the first 3 cells: " << m_UesNum.at(0) << " " << m_UesNum.at(1) << " " << m_UesNum.at(2) << " ");
-        // NS_LOG_LOGIC("Number of blocked users: " << Blocked_Users_num);
-
-        // float reward = 0;
-        // // reward1 => sum of throughput
-        // rewards.at(0) = m_dlThroughput;
-        // NS_LOG_LOGIC("GetReward: rewards.at(0): " << rewards.at(0));
-
-        // reward2 => Utilization deviation
-        // Get mean Utilization
-        // uint32_t rbSUM = 0;
-        // for (uint32_t idx = 0; idx < m_cellCount; idx++) {
-        //     rbSUM = rbSUM + m_rbUtil.at(idx);
-        //     NS_LOG_LOGIC("m_rbUtil.at(idx): " << m_rbUtil.at(idx));
-        //     NS_LOG_LOGIC("rbSUM : " << rbSUM);
-        // }
-
-        // for (uint32_t idx = 0; idx < m_cellCount; idx++) {
-        //     reward = reward - float(1.0 / 3.0) * abs(float(m_rbUtil.at(idx)) / m_nRBTotal - float(rbSUM) / (m_cellCount * m_nRBTotal));
-        // }
-        // rewards.at(1) = reward;
-        // NS_LOG_LOGIC("GetReward: rewards.at(1): " << rewards.at(0));
-
-    //     // reward3=> percentage of non-blocked users
-    //     reward = 1 - ((float) Blocked_Users_num / m_userCount);
-    //     rewards.at(2) = reward;
-    //     NS_LOG_LOGIC("GetReward: rewards.at(2): " << rewards.at(2));
+        for (itr = UserThrouput.begin(); itr != UserThrouput.end(); itr++) {
+            rewards_sum.at(itr->first - 1) = sum_reward;
+        }
     }
 
     float
@@ -539,56 +923,102 @@ namespace ns3 {
     bool
     MyGymEnv::ExecuteActions(Ptr < OpenGymDataContainer > action) {
         
-        // Custom
-        /////////////////////////////
-        // Ptr<OpenGymDictContainer> dict = DynamicCast<OpenGymDictContainer>(action);
-        Ptr<OpenGymBoxContainer<int32_t> > box = DynamicCast<OpenGymBoxContainer<int32_t>>(action);
-
-        uint32_t nodeNum = m_enbs.size();
-
-        // Action이 c++ 쪽에서 잘 받아졌는지 확인하려고 작성한 부분
-        // for(uint32_t i = 0; i<nodeNum; i++){
-        //     std::cout<< "eNB " << i << " action : "<< box->GetValue(i)<<std::endl;
-        // }
-
-        std::list<LteRrcSap::CellsToAddMod> celllist_temp;
         
-        //
-        // std::cout<<"ExecuteActions: ";
+        Ptr<OpenGymBoxContainer<float> > box = DynamicCast<OpenGymBoxContainer<float>>(action);
+        std::list<LteRrcSap::CellsToAddMod> celllist_temp;
 
-        for(uint32_t i = 0; i < nodeNum; i++){
-            LteRrcSap::CellsToAddMod cell_temp;
-            cell_temp.cellIndex = i+1;
-            cell_temp.physCellId = 0;
-            cell_temp.cellIndividualOffset = box->GetValue(i);
-            celllist_temp.push_back(cell_temp);
             
-            // std::cout<<box->GetValue(i);
-
-        }
-        for (std::map<uint32_t, Ptr<LteEnbNetDevice>>::iterator iter = m_enbs.begin(); iter != m_enbs.end(); ++iter){
-            iter->second->m_rrc->setCellstoAddModList(celllist_temp);
-            std::map<uint16_t, Ptr<UeManager>> m_UeMap = iter->second->GetRrc()->m_ueMap;
-            for(auto iter2 = m_UeMap.begin(); iter2 != m_UeMap.end(); iter2++)
-            {
-                iter2->second->ScheduleRrcConnectionRecursive();
+            uint32_t nodeNum = m_enbs.size();
+            for(uint32_t i = 0; i < nodeNum; i++){
+                LteRrcSap::CellsToAddMod cell_temp;
+                cell_temp.cellIndex = i+1;
+                cell_temp.physCellId = 0;
+  
+                int8_t cio = box->GetValue(i);
+                cell_temp.cellIndividualOffset = cio;
+                std::cout<<"Cell "<<i+1<<"  new CIO: "<<int(cio)<<std::endl;
+                celllist_temp.push_back(cell_temp);
             }
-        }
+
+            for (std::map<uint32_t, Ptr<LteEnbNetDevice>>::iterator iter = m_enbs.begin(); iter != m_enbs.end(); ++iter){
+                iter->second->m_rrc->setCellstoAddModList(celllist_temp);
+                std::map<uint16_t, Ptr<UeManager>> m_UeMap = iter->second->GetRrc()->m_ueMap;
+                for(auto iter2 = m_UeMap.begin(); iter2 != m_UeMap.end(); iter2++)
+                {
+                    iter2->second->ScheduleRrcConnectionRecursive();
+                }
+            }
+    
+            std::vector<double> UeActions (120);
+
+            for (std::map<uint32_t, Ptr<LteEnbNetDevice>>::iterator iter = m_enbs.begin(); iter != m_enbs.end(); ++iter){
+                uint32_t cellid = (iter->first)-1;
+
+
+                double HOM = box->GetValue(13+2*cellid);
+                uint16_t TTT = box->GetValue(14+2*cellid);
+
+                    
+                std::vector<uint64_t> Imsi_List;
+
+                std::map<uint16_t, Ptr<UeManager>> UeMap = iter->second->GetRrc ()->m_ueMap;
+                    
+                for (std::map<uint16_t, Ptr<UeManager>>::iterator iter2 = UeMap.begin(); iter2 != UeMap.end(); ++iter2){
+                    uint64_t Imsi = iter2->second->GetImsi();
+                    
+                    Ptr<LteUeNetDevice> UeNetDevice = m_ues[Imsi];
+
+                    double velocity_x = UeNetDevice->GetNode()->GetObject<MobilityModel>()->GetVelocity().x;
+                    double velocity_y = UeNetDevice->GetNode()->GetObject<MobilityModel>()->GetVelocity().y;
+                    double velocity_z = UeNetDevice->GetNode()->GetObject<MobilityModel>()->GetVelocity().z;
+
+                    double velocity = sqrt( pow(velocity_x, 2) + pow(velocity_y, 2) + pow(velocity_z, 2) );
+                    double mappedVelocity;
+                    // The part that gives each UE a detailed additional TTT setup 
+                    //(borrows the idea of QMRO :ref  S. S. Mwanje et al., ``Distributed Cooperative Q-Learning for Mobility Sensitive Handover Optimization in LTE SON,'' {in \it Proc. IEEE ISCC 2014}, Jun 2014.)
+                        if(velocity <=20.0){
+                        mappedVelocity = 1.0;
+                        }
+                        else if(velocity > 20.0 && velocity <= 30.0){
+                            mappedVelocity = 0.75;
+                        }
+                        else if(velocity > 30.0 && velocity <= 50.0){
+                            mappedVelocity = 0.50;
+                        }
+                        else{
+                            mappedVelocity = 0.25;
+                        }
+                    
+
+
+                    uint64_t Imsi_actions = Imsi -1;
+                    std::cout<<"Cellid : "<<cellid <<"HoM : " <<HOM<< "TTT : "<<TTT<<std::endl;
+                    UeActions[2*Imsi_actions] = HOM;
+                    UeActions[2*Imsi_actions+1] = TTT*mappedVelocity;
+                
+                }
+            }
+
+            for (std::map<uint64_t, Ptr<LteUeNetDevice>>::iterator iter = m_ues.begin(); iter != m_ues.end(); ++iter)
+            {
+                uint64_t imsi = (iter->first)-1;
+                double HOM = UeActions[2*imsi];
+                uint16_t TTT = UeActions[2*imsi+1];
+                
+
+                std::cout<< "UE:: "<<imsi<<"  New TTT: "<<TTT<<"  New HOM:  "<<HOM<<std::endl;
+
+                iter->second->GetRrc()->ChangeTtt(TTT);
+                iter->second->GetRrc()->ChangeHom(HOM);
+            }
+            /////////////////
+
+        
+
+
+
+  
         return true;
-
-        // Original
-        /////////////////////////////
-        // NS_LOG_FUNCTION(this);
-        // NS_LOG_LOGIC("MyExecuteActions: " << action << "    at time= " << Simulator::Now().GetSeconds() << " sec");
-        // Ptr < OpenGymBoxContainer < float > > box = DynamicCast < OpenGymBoxContainer < float > > (action);
-        // std::vector < float > actionVector = box -> GetData();
-        // std::vector < double > actionVectord;
-        // for (std::vector < float > ::iterator it = actionVector.begin(); it != actionVector.end(); ++it) {
-        //     actionVectord.push_back(double( * it));
-        // }
-        // CellIndividualOffset::setOffsetList(actionVectord);
-
-        // return true;
     }
 
     uint8_t
@@ -608,6 +1038,7 @@ namespace ns3 {
     uint8_t
     MyGymEnv::GetnRB(uint8_t iTB, uint16_t tbSize) {
         uint32_t tbSizeb = uint32_t(tbSize) * uint32_t(8);
+       
         // search in list
     uint32_t tbList[]  = {
 			  16,32,56,88,120,152,176,208,224,256,288,328,344,376,392,424,456,488,504,536,568,600,616,648,680,712,744,776,776,808,840,872,904,936,968,1000,1032,1032,1064,1096,1128,1160,1192,1224,1256,1256,1288,1320,1352,1384,1416,1416,1480,1480,1544,1544,1608,1608,1608,1672,1672,1736,1736,1800,1800,1800,1864,1864,1928,1928,1992,1992,2024,2088,2088,2088,2152,2152,2216,2216,2280,2280,2280,2344,2344,2408,2408,2472,2472,2536,2536,2536,2600,2600,2664,2664,2728,2728,2728,2792,2792,2856,2856,2856,2984,2984,2984,2984,2984,3112,
@@ -640,6 +1071,7 @@ namespace ns3 {
 
         uint16_t count = iTB * 110;
         while (tbList[count++] != tbSizeb);
+      //  std::cout<<"count"<<count % 110<<std::endl;
 
         return (count % 110);
 
@@ -648,6 +1080,8 @@ namespace ns3 {
     void
     MyGymEnv::GetPhyStats(Ptr < MyGymEnv > gymEnv,
         const PhyTransmissionStatParameters params) {
+    
+        
         if (gymEnv -> collect == 1) {
             NS_LOG_LOGIC(" ======= New Transmission =======");
             NS_LOG_LOGIC("Packed sent by" << " cell: " << params.m_cellId << " to UE: " << params.m_rnti);
@@ -657,20 +1091,24 @@ namespace ns3 {
             gymEnv -> m_dlThroughputVec.at(idx) = gymEnv -> m_dlThroughputVec.at(idx) + (params.m_size) * 8.0 / 1024.0 / 1024.0 / gymEnv -> collecting_window;
             gymEnv -> m_dlThroughput = gymEnv -> m_dlThroughput + (params.m_size) * 8.0 / 1024.0 / 1024.0 / gymEnv -> collecting_window;
             NS_LOG_LOGIC("sent data at cell " << idx << " is " << gymEnv -> m_dlThroughputVec.at(idx) * gymEnv -> collecting_window);
-
+            
             //add throughput per user
             gymEnv -> UserThrouput[params.m_cellId][params.m_rnti] = gymEnv -> UserThrouput[params.m_cellId][params.m_rnti] + (params.m_size) * 8.0 / 1024.0 / 1024.0 / gymEnv -> collecting_window;
-
+            // std::cout<<"UserThrouput at cell " << UserThrouput[params.m_cellId][params.m_rnti]<<std::endl;
             // Get nRBs
             uint8_t nRBs = MyGymEnv::GetnRB(MyGymEnv::Convert2ITB(params.m_mcs), params.m_size);
+          //  std::cout<<"params.m_size" << params.m_size<<std::endl;
+           // std::cout<<"nRBs" << nRBs<<std::endl;
+          //  std::cout<<"idx" <<idx<<std::endl;
             gymEnv -> m_rbUtil.at(idx) = gymEnv -> m_rbUtil.at(idx) + nRBs;
+           
 
             // Get MCSPen
-            // gymEnv -> m_MCSPen.at(idx).at(params.m_mcs) = gymEnv -> m_MCSPen.at(idx).at(params.m_mcs) + 1;
-            // NS_LOG_LOGIC("Frequency at cell " << idx << " is " << gymEnv -> m_cellFrequency.at(idx));
-            // NS_LOG_LOGIC("DLThroughput at cell " << idx << " is " << gymEnv -> m_dlThroughputVec.at(idx));
-            // NS_LOG_LOGIC("NRB at cell " << idx << " is " << gymEnv -> m_rbUtil.at(idx));
-            // NS_LOG_LOGIC("MCS frequency at cell " << idx << " of MCS " << uint32_t(params.m_mcs) << " is " << gymEnv -> m_MCSPen[idx][params.m_mcs]);
+            gymEnv -> m_MCSPen.at(idx).at(params.m_mcs) = gymEnv -> m_MCSPen.at(idx).at(params.m_mcs) + 1;
+            NS_LOG_LOGIC("Frequency at cell " << idx << " is " << gymEnv -> m_cellFrequency.at(idx));
+            NS_LOG_LOGIC("DLThroughput at cell " << idx << " is " << gymEnv -> m_dlThroughputVec.at(idx));
+            NS_LOG_LOGIC("NRB at cell " << idx << " is " << gymEnv -> m_rbUtil.at(idx));
+            NS_LOG_LOGIC("MCS frequency at cell " << idx << " of MCS " << uint32_t(params.m_mcs) << " is " << gymEnv -> m_MCSPen[idx][params.m_mcs]);
         }
     }
 
