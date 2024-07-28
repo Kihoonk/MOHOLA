@@ -258,14 +258,14 @@ try:
             #print("state_velocity :",  state_velocity)
             #print("state_edge :",  state_edge)
             for i in range(13):
-                if (state_velocity[i] < 15) :
+                if (state_velocity[i] < 20) :
                     if (state_edge[i]<0.3) :
                         action_mro.append(3)
                         action_mro.append(256)
                     elif(state_edge[i]>=0.3) :
                         action_mro.append(6)
                         action_mro.append(512)
-                elif(state_velocity[i]<30) :
+                elif(state_velocity[i]<35) :
                     if (state_edge[i]<0.3) :
                         action_mro.append(2)
                         action_mro.append(128)
@@ -1002,14 +1002,14 @@ try:
 
                         
                         for i in range(13):
-                            if (state_edge[i] < 15) :
+                            if (state_edge[i] < 20) :
                                 if (state_edge[i] <30 ): 
                                     actions_mro.append (3)
                                     actions_mro.append (480)
                                 elif (state_edge[i]>=30) :
                                     actions_mro.append (6)
                                     actions_mro.append (512)
-                            elif(state_edge[i]<30) :
+                            elif(state_edge[i]<35) :
                                 if (state_edge[i] <30 ): 
                                     actions_mro.append (2)
                                     actions_mro.append (256)
