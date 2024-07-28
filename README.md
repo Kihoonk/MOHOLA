@@ -34,20 +34,17 @@ chmod +x ./Rerun_MOHOLA..sh
 If you want to run only one episode, run the command:
 
 ./waf --run scratch/NS3_Env_small.cc
-To run large scale scenario, open the terminal and run the command:
 
 
 Running agent
-In the directory scratch, there are SLC2 agent files for small and large scale scenarios.
+In the directory scratch, there are MOHOLA agent file.
 
-For small scale scenario, open a new terminal and run the command:
-
-cd ./scratch
-python3 SLC2_Agent_small.py
-For large scale scenario, open a new terminal and run the command:
+open a new terminal and run the command:
 
 cd ./scratch
-python3 SLC2_Agent_large.py
+python3 MOHOLA_Agent.py
+
+
 Contact
 
 Kihoon Kim, Korea University, rlgns1109@korea.ac.kr
