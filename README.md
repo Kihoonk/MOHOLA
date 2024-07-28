@@ -33,7 +33,7 @@ Note that, you don't have to repeat the following command after your first runni
 chmod +x ./Rerun_MOHOLA..sh
 If you want to run only one episode, run the command:
 
-./waf --run scratch/NS3_Env_small.cc
+./waf --run scratch/NS3_Env_HetNet.cc
 
 
 Running agent
