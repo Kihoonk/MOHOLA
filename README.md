@@ -53,6 +53,7 @@ chmod +x ./waf
 pip3 install --user ./src/opengym/model/ns3gym
 ```
 7. Install MO-Gymnasium
+```shell
      pip install mo-gymnasium
 ((https://github.com/LucasAlegre/morl-baselines))
 @inproceedings{felten_toolkit_2023,
@@ -61,12 +62,12 @@ pip3 install --user ./src/opengym/model/ns3gym
 	booktitle = {Proceedings of the 37th Conference on Neural Information Processing Systems ({NeurIPS} 2023)},
 	year = {2023}
 }
-
-8. Change Replace pql.py with the file I uploaded
-
+```
+9. Change Replace pql.py with the file I uploaded
+```shell
 Replace pql.py in morl_baselines/multi_policy/pareto_q_learning
 with the pql.py I uploaded.
-
+```
 
 ## Running ns-3 environment
 
