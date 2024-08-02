@@ -52,9 +52,9 @@ chmod +x ./waf
 ```shell
 pip3 install --user ./src/opengym/model/ns3gym
 ```
-7. Install MO-Gymnasium ((https://github.com/LucasAlegre/morl-baselines))
-   pip install mo-gymnasium
-   
+7. Install MO-Gymnasium
+     pip install mo-gymnasium
+((https://github.com/LucasAlegre/morl-baselines))
 @inproceedings{felten_toolkit_2023,
 	author = {Felten, Florian and Alegre, Lucas N. and Now{\'e}, Ann and Bazzan, Ana L. C. and Talbi, El Ghazali and Danoy, Gr{\'e}goire and Silva, Bruno Castro da},
 	title = {A Toolkit for Reliable Benchmarking and Research in Multi-Objective Reinforcement Learning},
