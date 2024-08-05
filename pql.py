@@ -18,8 +18,8 @@ from morl_baselines.common.utils import linearly_decaying_value
 def action_func_Mlb(actions):
         env_actions = []
 
-       # CIO = [-2, -1, 0, 1, 2]
-        CIO = [-3,-2, -1, 0, 1, 3]
+        CIO = [-2, -1, 0, 1, 2]
+       # CIO = [-3,-2, -1, 0, 1, 3]
 
         # Ttt_len = len(Ttt)
         # print("Ttt_len: ",Ttt_len)
@@ -165,7 +165,7 @@ class PQL(MOAgent):
        #  ]
         
         self.non_dominated =[
-               [{tuple(np.full(self.num_objectives, 0))} for _ in range(self.num_actions)] #-2
+               [{tuple(np.full(self.num_objectives, -2))} for _ in range(self.num_actions)] #-2
                 for _ in range(self.num_states)
             ]
         
@@ -317,7 +317,7 @@ class PQL(MOAgent):
            # print("hello")
             
 
-        state = eval_env['enbMLBstate'][agentNumb]
+        state = eval_env['enbMLBindicator'][agentNumb]
         state_int = [int(state)]
        # print("State",state_int)
 
