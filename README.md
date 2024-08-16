@@ -64,7 +64,7 @@ pip install mo-gymnasium
 	year = {2023}
 }
 ```
-9. Change Replace pql.py with the file I uploaded
+9. Replace pql.py with the file I uploaded
 ```shell
 Replace pql.py in morl_baselines/multi_policy/pareto_q_learning
 with the pql.py I uploaded.
